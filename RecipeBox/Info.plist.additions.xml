@@ -1,0 +1,9 @@
+<!--
+Add these keys to your app target's Info.plist (or the "Info" tab in
+Xcode's target settings, which edits the same file).
+-->
+<key>NSCameraUsageDescription</key>
+<string>RecipeBox uses the camera to take a photo of a recipe.</string>
+
+<key>NSPhotoLibraryUsageDescription</key>
+<string>RecipeBox needs access to your photo library to choose a recipe photo.</string>
