@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 
 /// The set of parsing engines the user can pick from in Settings.
 /// To add a new AI provider later: create a type conforming to
@@ -48,5 +48,17 @@ enum RecipeParserFactory {
         }
         let apiKey = KeychainHelper.shared.read(forKey: provider.apiKeyStorageKey) ?? ""
         return AIRecipeParser(provider: provider, apiKey: apiKey)
+    }
+
+    /// Builds the on-demand vision parser for the currently selected AI
+    /// engine, or nil if the on-device engine is selected (it has no vision
+    /// capability — the caller should tell the person to pick Claude or
+    /// ChatGPT in Settings).
+    static func makeImageParser(excludedRegions: [CGRect]) -> AIImageRecipeParser? {
+        let rawValue = UserDefaults.standard.string(forKey: ParserSettingsKeys.selectedEngine)
+        let engine = ParserEngine(rawValue: rawValue ?? "") ?? .claude
+        guard let provider = engine.aiProvider else { return nil }
+        let apiKey = KeychainHelper.shared.read(forKey: provider.apiKeyStorageKey) ?? ""
+        return AIImageRecipeParser(provider: provider, apiKey: apiKey, excludedRegions: excludedRegions)
     }
 }

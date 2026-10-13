@@ -6,13 +6,16 @@ struct ContentView: View {
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var selectedImage: UIImage?
-    @State private var recipeText: String = ""
+    @State private var recipe = EditableRecipe()
     @State private var isParsing = false
     @State private var parseError: String?
     @State private var navigateToCompare = false
     @State private var showSettings = false
     @State private var showAPIKeyPrompt = false
     @State private var showMaskEditor = false
+    /// Kept after parsing so the photo page's AI Vision button can paint
+    /// the same blocked-out areas white before uploading.
+    @State private var excludedRegions: [CGRect] = []
 
     @AppStorage(ParserSettingsKeys.selectedEngine)
     private var selectedEngineRaw: String = ParserEngine.claude.rawValue
@@ -124,18 +127,24 @@ struct ContentView: View {
                 // different recipe's text on the same page) before OCR
                 // ever runs, rather than parsing immediately.
                 parseError = nil
+                excludedRegions = []
                 showMaskEditor = true
             }
             .navigationDestination(isPresented: $showMaskEditor) {
                 if let selectedImage {
-                    MaskEditorView(image: selectedImage, isParsing: $isParsing) { excludedRegions in
-                        parse(image: selectedImage, excludedRegions: excludedRegions)
+                    MaskEditorView(image: selectedImage, isParsing: $isParsing) { regions in
+                        excludedRegions = regions
+                        parse(image: selectedImage, excludedRegions: regions)
                     }
                 }
             }
             .navigationDestination(isPresented: $navigateToCompare) {
                 if let selectedImage {
-                    ComparePagerView(originalImage: selectedImage, recipeText: $recipeText)
+                    ComparePagerView(
+                        originalImage: selectedImage,
+                        excludedRegions: excludedRegions,
+                        recipe: $recipe
+                    )
                 }
             }
         }
@@ -149,10 +158,8 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 isParsing = false
                 switch result {
-                case .success(let text):
-                    recipeText = text.isEmpty
-                        ? "No text detected — you can type the recipe here."
-                        : text
+                case .success(let parsed):
+                    recipe = EditableRecipe(from: parsed)
                     navigateToCompare = true
                 case .failure(let error):
                     parseError = "Couldn't read the recipe: \(error.localizedDescription)"

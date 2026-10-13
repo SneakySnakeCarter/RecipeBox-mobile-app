@@ -25,17 +25,56 @@ struct OpenAIRecipeProvider: AIRecipeProvider {
         apiKey: String,
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     ) {
-        guard !apiKey.isEmpty else {
-            completion(.failure(AIProviderError.missingAPIKey))
-            return
-        }
         guard !ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             completion(.failure(AIProviderError.emptyOCRText))
+            return
+        }
+        send(
+            content: AIRecipePrompt.instructions + "\n" + ocrText,
+            maxTokens: maxTokens,
+            apiKey: apiKey,
+            completion: completion
+        )
+    }
+
+    /// Vision path. gpt-4o-mini accepts images; "detail": "high" lets it
+    /// read small print at the cost of more image tokens.
+    func requestRecipe(
+        fromJPEGData jpegData: Data,
+        apiKey: String,
+        completion: @escaping (Result<StructuredRecipe, Error>) -> Void
+    ) {
+        let content: [[String: Any]] = [
+            ["type": "text", "text": AIRecipePrompt.visionInstructions],
+            [
+                "type": "image_url",
+                "image_url": [
+                    "url": "data:image/jpeg;base64,\(jpegData.base64EncodedString())",
+                    "detail": "high"
+                ]
+            ]
+        ]
+        send(content: content, maxTokens: visionMaxTokens, apiKey: apiKey, completion: completion)
+    }
+
+    private let visionMaxTokens = 1500
+
+    /// `content` is either a plain String (text path) or an array of
+    /// content parts (vision path) — the chat completions API accepts both.
+    private func send(
+        content: Any,
+        maxTokens: Int,
+        apiKey: String,
+        completion: @escaping (Result<StructuredRecipe, Error>) -> Void
+    ) {
+        guard !apiKey.isEmpty else {
+            completion(.failure(AIProviderError.missingAPIKey))
             return
         }
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
         request.httpMethod = "POST"
+        request.timeoutInterval = 90
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
 
@@ -43,10 +82,7 @@ struct OpenAIRecipeProvider: AIRecipeProvider {
             "model": model,
             "max_tokens": maxTokens,
             "response_format": ["type": "json_object"],
-            "messages": [[
-                "role": "user",
-                "content": AIRecipePrompt.instructions + "\n" + ocrText
-            ]]
+            "messages": [["role": "user", "content": content]]
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 

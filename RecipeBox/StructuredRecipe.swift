@@ -200,7 +200,7 @@ struct StructuredRecipe: Codable {
     /// to the original three-field version of this model; a recipe with
     /// grouped ingredients, prep/cook time, tips, and nutrition shows all
     /// of it, each under its own heading.
-    func renderedText() -> String {
+    func renderedText(uppercaseGroupNames: Bool = true) -> String {
         var lines: [String] = []
         lines.append(title.isEmpty ? "Untitled Recipe" : title)
 
@@ -228,7 +228,7 @@ struct StructuredRecipe: Codable {
         } else {
             for (index, group) in ingredientSections.enumerated() {
                 if index > 0 { lines.append("") }
-                lines.append("\(sectionHeading(group.name)):")
+                lines.append("\(sectionHeading(group.name, uppercase: uppercaseGroupNames)):")
                 lines.append(contentsOf: group.items.map { "- \($0)" })
             }
         }
@@ -244,7 +244,7 @@ struct StructuredRecipe: Codable {
         } else {
             for (index, group) in instructionSections.enumerated() {
                 if index > 0 { lines.append("") }
-                lines.append("\(sectionHeading(group.name)):")
+                lines.append("\(sectionHeading(group.name, uppercase: uppercaseGroupNames)):")
                 let numbered = group.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }
                 lines.append(contentsOf: numbered)
             }
@@ -276,8 +276,10 @@ struct StructuredRecipe: Codable {
         return name.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    private func sectionHeading(_ name: String?) -> String {
-        guard let name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return "OTHER" }
-        return name.uppercased()
+    private func sectionHeading(_ name: String?, uppercase: Bool) -> String {
+        guard let name, !name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return uppercase ? "OTHER" : "Other"
+        }
+        return uppercase ? name.uppercased() : name
     }
 }

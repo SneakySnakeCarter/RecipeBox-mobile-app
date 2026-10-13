@@ -30,17 +30,59 @@ struct AnthropicRecipeProvider: AIRecipeProvider {
         apiKey: String,
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     ) {
-        guard !apiKey.isEmpty else {
-            completion(.failure(AIProviderError.missingAPIKey))
-            return
-        }
         guard !ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             completion(.failure(AIProviderError.emptyOCRText))
+            return
+        }
+        send(
+            content: AIRecipePrompt.instructions + "\n" + ocrText,
+            maxTokens: maxTokens,
+            apiKey: apiKey,
+            completion: completion
+        )
+    }
+
+    /// Vision path. Haiku-tier Claude models accept images; the photo is
+    /// downscaled before this point (see RecipeImageEncoder) to keep the
+    /// image-token cost down. Output cap is a little higher than the text
+    /// path since the model is also doing the reading.
+    func requestRecipe(
+        fromJPEGData jpegData: Data,
+        apiKey: String,
+        completion: @escaping (Result<StructuredRecipe, Error>) -> Void
+    ) {
+        let content: [[String: Any]] = [
+            [
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": jpegData.base64EncodedString()
+                ]
+            ],
+            ["type": "text", "text": AIRecipePrompt.visionInstructions]
+        ]
+        send(content: content, maxTokens: visionMaxTokens, apiKey: apiKey, completion: completion)
+    }
+
+    private let visionMaxTokens = 1500
+
+    /// `content` is either a plain String (text path) or an array of
+    /// content blocks (vision path) — the Messages API accepts both.
+    private func send(
+        content: Any,
+        maxTokens: Int,
+        apiKey: String,
+        completion: @escaping (Result<StructuredRecipe, Error>) -> Void
+    ) {
+        guard !apiKey.isEmpty else {
+            completion(.failure(AIProviderError.missingAPIKey))
             return
         }
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
+        request.timeoutInterval = 90
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -48,10 +90,7 @@ struct AnthropicRecipeProvider: AIRecipeProvider {
         let body: [String: Any] = [
             "model": model,
             "max_tokens": maxTokens,
-            "messages": [[
-                "role": "user",
-                "content": AIRecipePrompt.instructions + "\n" + ocrText
-            ]]
+            "messages": [["role": "user", "content": content]]
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
@@ -73,8 +112,8 @@ struct AnthropicRecipeProvider: AIRecipeProvider {
                     return
                 }
 
-                guard let content = json?["content"] as? [[String: Any]],
-                      let text = content.first?["text"] as? String else {
+                guard let blocks = json?["content"] as? [[String: Any]],
+                      let text = blocks.first?["text"] as? String else {
                     completion(.failure(AIProviderError.emptyResponse))
                     return
                 }

@@ -25,6 +25,16 @@ protocol AIRecipeProvider {
         apiKey: String,
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     )
+
+    /// Vision path: sends the photo itself (JPEG data) to a vision-capable
+    /// model and has it find and structure the recipe directly. Costs more
+    /// than the OCR-text path, so it is on-demand only (the button on the
+    /// photo page), not the default.
+    func requestRecipe(
+        fromJPEGData jpegData: Data,
+        apiKey: String,
+        completion: @escaping (Result<StructuredRecipe, Error>) -> Void
+    )
 }
 
 enum AIProviderError: LocalizedError {
@@ -33,6 +43,8 @@ enum AIProviderError: LocalizedError {
     case badResponse(String)
     case emptyResponse
     case emptyStructuredResult
+    case noRecipeInImage
+    case imageEncodingFailed
 
     var errorDescription: String? {
         switch self {
@@ -44,6 +56,10 @@ enum AIProviderError: LocalizedError {
             return "The AI service returned an error: \(detail)"
         case .emptyResponse:
             return "The AI service didn't return any recipe text."
+        case .noRecipeInImage:
+            return "The AI couldn't find a recipe in this photo. Try blocking out less of the page, retaking the photo, or switching AI engines in Settings."
+        case .imageEncodingFailed:
+            return "The photo couldn't be prepared for the AI."
         case .emptyStructuredResult:
             return "On-device text recognition found readable text in this photo, but the AI didn't return any ingredients or instructions from it. Try again, retake the photo, or switch AI engines in Settings."
         }
@@ -64,7 +80,7 @@ enum AIProviderError: LocalizedError {
 /// optional, and the prompt explicitly tells the model not to invent
 /// content just to fill a field that the source didn't have.
 enum AIRecipePrompt {
-    static let instructions = """
+    static let ocrIntro = """
     Below is text extracted from a photo of a recipe by on-device OCR. \
     The OCR may contain misread characters or merged/split words. For a \
     two-column layout (e.g. one ingredient list on the left, another \
@@ -107,7 +123,11 @@ enum AIRecipePrompt {
     belongs to the most recent such header above it in the OCR text — \
     assign items to groups by their position in the text, never by \
     guessing which group an item "should" logically belong to.
+    """
 
+    /// The JSON schema + rules, shared by the OCR-text prompt and the
+    /// photo (vision) prompt so both engines return the same shape.
+    static let schemaAndRules = """
     Respond with ONLY a JSON object — no markdown fences, no commentary \
     — matching EXACTLY this shape, with these EXACT key names (do not \
     use a flat top-level "ingredients" or "instructions" array — always \
@@ -169,8 +189,42 @@ enum AIRecipePrompt {
     the work to reconstruct the recipe's real structure, but never at \
     the cost of adding words, ingredients, or steps the OCR text doesn't \
     actually contain.
+    """
 
-    OCR TEXT:
+    /// Prompt for the text-only path (on-device OCR first, then AI).
+    /// Callers append "\n" + the OCR text.
+    static let instructions = ocrIntro + "\n\n" + schemaAndRules + "\n\nOCR TEXT:"
+
+    /// Prompt for the photo path: the AI reads the image directly.
+    static let visionInstructions = visionIntro + "\n\n" + schemaAndRules
+
+    static let visionIntro = """
+    The attached image is a photo of a recipe, often a page from a \
+    cookbook or binder. Find the recipe on the page and extract it. The \
+    page may also show parts of OTHER, unrelated recipes — for example \
+    the last lines of the previous recipe at the very top, or the start \
+    of the next one at the bottom, sometimes faded or cut off. Extract \
+    only the one main, complete recipe (the one with its own title, \
+    ingredient list and method) and ignore text belonging to any other \
+    recipe.
+
+    Reading the layout: for a two-column layout (e.g. ingredients split \
+    across a left and right column), read the whole left column top to \
+    bottom, then the whole right column. An ingredient line wrapped onto \
+    a second printed line is indented under the line above it and belongs \
+    to that ingredient; a new ingredient starts flush with the list's \
+    left margin, whether or not it begins with a quantity. Put everything \
+    printed in the right fields: ingredients, the method/directions \
+    (even when printed as one paragraph — split it into steps at natural \
+    sentence boundaries), and any title, servings, times, tips, \
+    nutrition or attribution.
+
+    Transcribe literally and never invent content: copy quantities, \
+    units and wording exactly as printed, and do not add ingredients or \
+    steps that are not on the page. The rules below were written for \
+    OCR'd text; wherever they say "OCR text" or "OCR", apply them to \
+    what you read in the photo. If the photo contains no recipe at all, \
+    return empty ingredientGroups and instructionGroups.
     """
 }
 

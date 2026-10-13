@@ -79,7 +79,18 @@ enum OCRTextExtractor {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        // A UIImage's pixel data (cgImage) is stored in the camera sensor's
+        // orientation; `imageOrientation` says how to rotate it to appear
+        // upright. Without telling Vision, a camera photo is OCR'd sideways,
+        // which hurts recognition, and the bounding boxes come back in the
+        // sideways frame — so the mask rects (drawn on the upright image)
+        // wouldn't line up either. Passing the orientation makes Vision
+        // read, and report boxes in, the upright frame.
+        let handler = VNImageRequestHandler(
+            cgImage: cgImage,
+            orientation: CGImagePropertyOrientation(image.imageOrientation),
+            options: [:]
+        )
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try handler.perform([request])
@@ -245,5 +256,22 @@ enum OCRTextExtractor {
         // trusting it as a real column boundary rather than ordinary
         // ragged text spacing.
         return bestGap > 0.15 ? bestSplit : nil
+    }
+}
+
+private extension CGImagePropertyOrientation {
+    /// Standard UIImage.Orientation -> EXIF-style orientation mapping.
+    init(_ orientation: UIImage.Orientation) {
+        switch orientation {
+        case .up: self = .up
+        case .upMirrored: self = .upMirrored
+        case .down: self = .down
+        case .downMirrored: self = .downMirrored
+        case .left: self = .left
+        case .leftMirrored: self = .leftMirrored
+        case .right: self = .right
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
+        }
     }
 }

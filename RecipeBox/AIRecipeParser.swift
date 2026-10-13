@@ -13,7 +13,7 @@ struct AIRecipeParser: RecipeParsing {
     let provider: AIRecipeProvider
     let apiKey: String
 
-    func parseRecipe(from image: UIImage, excludedRegions: [CGRect], completion: @escaping (Result<String, Error>) -> Void) {
+    func parseRecipe(from image: UIImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
         OCRTextExtractor.extractLines(from: image, excludedRegions: excludedRegions) { ocrResult in
             switch ocrResult {
             case .failure(let error):
@@ -37,11 +37,44 @@ struct AIRecipeParser: RecipeParsing {
                         if hasSubstantialOCRText && !recipe.hasAnyContent {
                             completion(.failure(AIProviderError.emptyStructuredResult))
                         } else {
-                            completion(.success(recipe.renderedText()))
+                            completion(.success(recipe))
                         }
                     case .failure(let error):
                         completion(.failure(error))
                     }
+                }
+            }
+        }
+    }
+}
+
+/// The on-demand vision path: sends the photo itself to the active AI
+/// provider and returns the rendered recipe text. Unlike AIRecipeParser it
+/// does no local OCR — the model reads the image directly, which handles
+/// layouts and stray neighbouring-recipe text better but costs more per
+/// call, so it's triggered by a button rather than being the default.
+struct AIImageRecipeParser {
+    let provider: AIRecipeProvider
+    let apiKey: String
+    /// Regions blocked out in MaskEditorView; painted white before upload.
+    let excludedRegions: [CGRect]
+
+    func parseRecipe(from image: UIImage, completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let jpeg = RecipeImageEncoder.jpegData(from: image, blockingRegions: excludedRegions) else {
+                completion(.failure(AIProviderError.imageEncodingFailed))
+                return
+            }
+            provider.requestRecipe(fromJPEGData: jpeg, apiKey: apiKey) { result in
+                switch result {
+                case .success(let recipe):
+                    if recipe.hasAnyContent {
+                        completion(.success(recipe))
+                    } else {
+                        completion(.failure(AIProviderError.noRecipeInImage))
+                    }
+                case .failure(let error):
+                    completion(.failure(error))
                 }
             }
         }
