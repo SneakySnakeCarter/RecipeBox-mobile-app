@@ -1,0 +1,27 @@
+<!--
+Replace the NSExtension dictionary in the ShareExtension target's Info.plist
+(Xcode generates one containing NSExtensionMainStoryboard — delete that key and
+use NSExtensionPrincipalClass instead, as below).
+
+The target's Product Module Name is whatever the target is called, so if you
+named it something other than "ShareExtension", change the class prefix.
+-->
+<key>NSExtension</key>
+<dict>
+    <key>NSExtensionAttributes</key>
+    <dict>
+        <key>NSExtensionActivationRule</key>
+        <dict>
+            <key>NSExtensionActivationSupportsImageWithMaxCount</key>
+            <integer>10</integer>
+            <key>NSExtensionActivationSupportsText</key>
+            <true/>
+            <key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+            <integer>1</integer>
+        </dict>
+    </dict>
+    <key>NSExtensionPointIdentifier</key>
+    <string>com.apple.share-services</string>
+    <key>NSExtensionPrincipalClass</key>
+    <string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+</dict>
