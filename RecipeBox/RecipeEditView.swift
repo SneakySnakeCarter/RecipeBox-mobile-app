@@ -11,6 +11,12 @@ import UIKit
 /// the photo next to it.
 struct RecipeEditView: View {
     @ObservedObject var model: EditorModel
+    /// Landscape: collapse the mode switch and the Save / Revert controls
+    /// into one thin row (the screen's nav bar is hidden there, so the back
+    /// button and AI-undo move into this row too).
+    var compact = false
+    var onBack: (() -> Void)?
+    var onUndoAIReread: (() -> Void)?
 
     @State private var editMode: EditMode = .inactive
     @State private var keyboardVisible = false
@@ -19,20 +25,28 @@ struct RecipeEditView: View {
     @FocusState private var focusedID: UUID?
     @FocusState private var textFocused: Bool
 
+    init(
+        model: EditorModel,
+        compact: Bool = false,
+        onBack: (() -> Void)? = nil,
+        onUndoAIReread: (() -> Void)? = nil
+    ) {
+        self.model = model
+        self.compact = compact
+        self.onBack = onBack
+        self.onUndoAIReread = onUndoAIReread
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Editor mode", selection: modeBinding) {
-                ForEach(EditorModel.Mode.allCases) { mode in
-                    // A dot marks a view that has unsaved edits.
-                    Text(model.isDirty(mode) ? "\(mode.rawValue) •" : mode.rawValue)
-                        .tag(mode)
-                }
+            if compact {
+                compactBar
+            } else {
+                modePicker
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                controlBar
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top, 8)
-
-            controlBar
 
             switch model.mode {
             case .fields: fieldsEditor
@@ -91,40 +105,81 @@ struct RecipeEditView: View {
 
     // MARK: - Save / revert bar
 
+    private var modePicker: some View {
+        Picker("Editor mode", selection: modeBinding) {
+            ForEach(EditorModel.Mode.allCases) { mode in
+                // A dot marks a view that has unsaved edits.
+                Text(model.isDirty(mode) ? "\(mode.rawValue) •" : mode.rawValue)
+                    .tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            if model.mode == .fields {
+                Button {
+                    withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                } label: {
+                    Label(
+                        editMode.isEditing ? "Done Reordering" : "Reorder / Delete Rows",
+                        systemImage: "arrow.up.arrow.down"
+                    )
+                }
+            }
+            Button {
+                if model.hasUnsavedEdits {
+                    confirmUndoDiscardsEdits = true
+                } else {
+                    model.undoLastSave()
+                }
+            } label: {
+                Label("Undo Last Save", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.canUndoSave)
+            if let onUndoAIReread {
+                Button(action: onUndoAIReread) {
+                    Label("Undo AI Re-read", systemImage: "eye.slash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+    }
+
+    private var hideKeyboardButton: some View {
+        Button {
+            Self.hideKeyboard()
+        } label: {
+            Image(systemName: "keyboard.chevron.compact.down")
+        }
+    }
+
+    private var revertButton: some View {
+        Button("Revert") { model.revertCurrent() }
+            .disabled(!model.currentDirty)
+    }
+
+    private var saveButton: some View {
+        Button("Save") {
+            if model.otherDirty {
+                confirmSaveDiscardsOther = true
+            } else {
+                Self.hideKeyboard()
+                model.saveCurrent()
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .disabled(!model.currentDirty)
+    }
+
     private var controlBar: some View {
         HStack(spacing: 12) {
-            Menu {
-                if model.mode == .fields {
-                    Button {
-                        withAnimation { editMode = editMode.isEditing ? .inactive : .active }
-                    } label: {
-                        Label(
-                            editMode.isEditing ? "Done Reordering" : "Reorder / Delete Rows",
-                            systemImage: "arrow.up.arrow.down"
-                        )
-                    }
-                }
-                Button {
-                    if model.hasUnsavedEdits {
-                        confirmUndoDiscardsEdits = true
-                    } else {
-                        model.undoLastSave()
-                    }
-                } label: {
-                    Label("Undo Last Save", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(!model.canUndoSave)
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
+            moreMenu
 
-            if keyboardVisible {
-                Button {
-                    Self.hideKeyboard()
-                } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                }
-            }
+            if keyboardVisible { hideKeyboardButton }
 
             Spacer()
 
@@ -134,24 +189,39 @@ struct RecipeEditView: View {
                     .foregroundStyle(.orange)
             }
 
-            Button("Revert") { model.revertCurrent() }
-                .disabled(!model.currentDirty)
-
-            Button("Save") {
-                if model.otherDirty {
-                    confirmSaveDiscardsOther = true
-                } else {
-                    Self.hideKeyboard()
-                    model.saveCurrent()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(!model.currentDirty)
+            revertButton
+            saveButton
         }
         .font(.subheadline)
         .padding(.horizontal)
         .padding(.vertical, 6)
+    }
+
+    /// One thin row for landscape: back, mode switch, ⋯, then Revert / Save.
+    private var compactBar: some View {
+        HStack(spacing: 8) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                }
+            }
+
+            modePicker
+                .controlSize(.small)
+                .frame(maxWidth: 170)
+
+            moreMenu
+
+            if keyboardVisible { hideKeyboardButton }
+
+            Spacer(minLength: 0)
+
+            revertButton
+            saveButton
+        }
+        .font(.footnote)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 3)
     }
 
     // MARK: - Text mode
@@ -371,7 +441,7 @@ private struct LineRows: View {
                 TextField(placeholder, text: $line.text, axis: .vertical)
                     .lineLimit(1...)
                     .focused($focusedID, equals: line.id)
-                    .onChange(of: line.text) { newValue in
+                    .onChange(of: line.text) { _, newValue in
                         if newValue.contains("\n") { split(line.id, newValue) }
                     }
             }

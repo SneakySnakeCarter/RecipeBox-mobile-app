@@ -1,5 +1,4 @@
 import SwiftUI
-//Chad was here
 
 @main
 struct RecipeBoxApp: App {

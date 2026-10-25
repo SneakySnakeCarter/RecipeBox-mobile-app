@@ -26,12 +26,12 @@ protocol AIRecipeProvider {
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     )
 
-    /// Vision path: sends the photo itself (JPEG data) to a vision-capable
-    /// model and has it find and structure the recipe directly. Costs more
-    /// than the OCR-text path, so it is on-demand only (the button on the
-    /// photo page), not the default.
+    /// Vision path: sends the photo(s) themselves (JPEG data, top to bottom)
+    /// to a vision-capable model and has it find and structure the recipe
+    /// directly. Costs more than the OCR-text path, so it is on-demand only
+    /// (the Re-read button on the photo page), not the default.
     func requestRecipe(
-        fromJPEGData jpegData: Data,
+        fromJPEGImages jpegImages: [Data],
         apiKey: String,
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     )
@@ -101,6 +101,11 @@ enum AIRecipePrompt {
     and assign it to one ingredient/step, even if it reads a little \
     short (e.g. "2 large eggs" is a complete ingredient on its own, not \
     a fragment needing more text).
+
+    The text may come from several consecutive photos or screenshots of \
+    the same page, joined top to bottom. If the same line is repeated \
+    right at the point where two photos join (because they overlapped), \
+    keep it once.
 
     IMPORTANT — never invent or substitute content: correcting an \
     obvious single-character OCR misread is fine (e.g. "l cup" -> \
@@ -225,6 +230,13 @@ enum AIRecipePrompt {
     OCR'd text; wherever they say "OCR text" or "OCR", apply them to \
     what you read in the photo. If the photo contains no recipe at all, \
     return empty ingredientGroups and instructionGroups.
+
+    You may be given several images instead of one. They are consecutive \
+    pieces of the same page — for example screenshots taken while \
+    scrolling — in reading order, top to bottom. Treat them as one \
+    continuous document. If the same line appears at the bottom of one \
+    image and again at the top of the next because they overlap, include \
+    it only once.
     """
 }
 

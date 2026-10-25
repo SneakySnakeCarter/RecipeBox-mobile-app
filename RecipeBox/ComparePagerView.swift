@@ -4,7 +4,8 @@ import UIKit
 /// Recipe editor + original photo. In portrait they are two swipeable
 /// pages; in landscape they sit side by side with a draggable divider.
 struct ComparePagerView: View {
-    let originalImage: UIImage
+    /// The recipe page: one photo, or several stitched together.
+    let source: StitchedImage
     /// Regions the person blocked out before OCR (MaskEditorView); the
     /// vision re-read paints them white so that text is skipped there too.
     var excludedRegions: [CGRect] = []
@@ -31,12 +32,14 @@ struct ComparePagerView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    init(originalImage: UIImage, excludedRegions: [CGRect] = [], recipe: Binding<EditableRecipe>) {
-        self.originalImage = originalImage
+    init(source: StitchedImage, excludedRegions: [CGRect] = [], recipe: Binding<EditableRecipe>) {
+        self.source = source
         self.excludedRegions = excludedRegions
         _recipe = recipe
         _model = StateObject(wrappedValue: EditorModel(saved: recipe.wrappedValue))
     }
+
+    private var originalImage: UIImage { source.composite }
 
     private var isLandscape: Bool { windowSize.width > windowSize.height }
 
@@ -52,12 +55,15 @@ struct ComparePagerView: View {
             GeometryReader { proxy in
                 Color.clear
                     .onAppear { windowSize = proxy.size }
-                    .onChange(of: proxy.size) { windowSize = $0 }
+                    .onChange(of: proxy.size) { _, newSize in windowSize = newSize }
             }
             .ignoresSafeArea()
         )
         .navigationTitle("Compare")
         .navigationBarTitleDisplayMode(.inline)
+        // Landscape has little height to spare: the editor's own thin row
+        // carries the back button instead.
+        .toolbar(isLandscape ? .hidden : .automatic, for: .navigationBar)
         // With unsaved edits, replace the back button (and its swipe-back
         // gesture) with one that asks first.
         .navigationBarBackButtonHidden(model.hasUnsavedEdits)
@@ -73,18 +79,12 @@ struct ComparePagerView: View {
             }
             if recipeBeforeVision != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Undo AI Re-read") {
-                        if let previous = recipeBeforeVision {
-                            model.reset(to: previous)
-                            recipeBeforeVision = nil
-                            currentPage = 0
-                        }
-                    }
+                    Button("Undo AI Re-read") { undoAIReread() }
                 }
             }
         }
         // Keep the screen that started this flow in step with what's saved.
-        .onChange(of: model.saved) { recipe = $0 }
+        .onChange(of: model.saved) { _, newSaved in recipe = newSaved }
         .confirmationDialog("Discard unsaved changes?", isPresented: $confirmDiscardOnBack, titleVisibility: .visible) {
             Button("Discard Changes", role: .destructive) { dismiss() }
             Button("Keep Editing", role: .cancel) {}
@@ -138,8 +138,13 @@ struct ComparePagerView: View {
             let editorWidth = max(total * fraction - dividerWidth / 2, 0)
 
             HStack(spacing: 0) {
-                RecipeEditView(model: model)
-                    .frame(width: editorWidth)
+                RecipeEditView(
+                    model: model,
+                    compact: true,
+                    onBack: goBack,
+                    onUndoAIReread: recipeBeforeVision == nil ? nil : { undoAIReread() }
+                )
+                .frame(width: editorWidth)
 
                 divider(totalWidth: total)
 
@@ -180,7 +185,24 @@ struct ComparePagerView: View {
             .overlay(alignment: .bottom) { visionButton(bottomPadding: bottomPadding) }
     }
 
+    // MARK: - Navigation
+
+    private func goBack() {
+        if model.hasUnsavedEdits {
+            confirmDiscardOnBack = true
+        } else {
+            dismiss()
+        }
+    }
+
     // MARK: - AI Vision
+
+    private func undoAIReread() {
+        guard let previous = recipeBeforeVision else { return }
+        model.reset(to: previous)
+        recipeBeforeVision = nil
+        currentPage = 0
+    }
 
     private func visionButton(bottomPadding: CGFloat) -> some View {
         Button {
@@ -191,19 +213,21 @@ struct ComparePagerView: View {
             }
         } label: {
             if isReadingWithVision {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ProgressView()
-                    Text("Reading photo with AI…")
+                        .controlSize(.small)
+                    Text("Reading…")
                 }
             } else {
-                Label("Re-read with AI Vision", systemImage: "eye")
+                Label("Re-read", systemImage: "eye")
             }
         }
-        .font(.subheadline.bold())
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .font(.footnote.bold())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
-        .shadow(radius: 3)
+        .shadow(radius: 2)
+        .accessibilityLabel("Re-read with AI Vision")
         .disabled(isReadingWithVision)
         .padding(.bottom, bottomPadding)
     }
@@ -214,7 +238,7 @@ struct ComparePagerView: View {
             return
         }
         isReadingWithVision = true
-        parser.parseRecipe(from: originalImage) { result in
+        parser.parseRecipe(from: source) { result in
             DispatchQueue.main.async {
                 isReadingWithVision = false
                 switch result {

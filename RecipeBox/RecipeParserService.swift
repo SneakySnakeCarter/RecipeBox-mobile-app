@@ -6,14 +6,14 @@ protocol RecipeParsing {
     /// - Parameter excludedRegions: image-fraction rects (0...1, top-left
     ///   origin) the person drew in MaskEditorView to mark "don't read
     ///   this" — passed straight through to OCRTextExtractor.
-    func parseRecipe(from image: UIImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void)
+    func parseRecipe(from source: StitchedImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void)
 }
 
 extension RecipeParsing {
     /// Convenience overload for call sites (previews, tests, etc.) that
     /// don't need masking.
-    func parseRecipe(from image: UIImage, completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
-        parseRecipe(from: image, excludedRegions: [], completion: completion)
+    func parseRecipe(from source: StitchedImage, completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
+        parseRecipe(from: source, excludedRegions: [], completion: completion)
     }
 }
 
@@ -32,8 +32,8 @@ enum RecipeParserError: LocalizedError {
 /// a lightweight heuristic pass to structure it into a title,
 /// ingredients, and instructions. Fully offline — no API key needed.
 final class VisionRecipeParser: RecipeParsing {
-    func parseRecipe(from image: UIImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
-        OCRTextExtractor.extractLines(from: image, excludedRegions: excludedRegions) { result in
+    func parseRecipe(from source: StitchedImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
+        OCRTextExtractor.extractLines(from: source, excludedRegions: excludedRegions) { result in
             switch result {
             case .success(let lines):
                 completion(.success(RecipeFormatter.structure(lines: lines)))

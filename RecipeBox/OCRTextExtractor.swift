@@ -27,55 +27,63 @@ import UIKit
 /// from the same page) removes matching OCR lines entirely — see
 /// `extractLines` below.
 enum OCRTextExtractor {
-    /// - Parameter excludedRegions: rects the person drew over the photo to
-    ///   mark "don't read this" (see MaskEditorView), in image-fraction
-    ///   coordinates (0...1, **top-left** origin — the natural space for a
-    ///   drawn UI overlay). Any recognized line whose center falls inside
-    ///   one of these is dropped before column splitting or wrap-merging
-    ///   ever sees it, so stray text from an adjacent, unrelated recipe on
-    ///   the same page can't bleed into the result.
+    /// Reads the text in a (possibly stitched) recipe page.
+    ///
+    /// Each source photo is recognized on its own — far more accurate than
+    /// running OCR over one very tall stitched image — and its lines are then
+    /// mapped into the composite's coordinate space, so everything after
+    /// this (column splitting, wrap merging) sees one page.
+    ///
+    /// - Parameter excludedRegions: rects the person drew over the page to
+    ///   mark "don't read this" (see MaskEditorView), in composite-fraction
+    ///   coordinates (0...1, **top-left** origin). Any recognized line whose
+    ///   center falls inside one is dropped before column splitting or
+    ///   wrap-merging ever sees it.
+    ///
+    /// Runs synchronously on a background queue; `completion` is called from
+    /// that queue.
     static func extractLines(
-        from image: UIImage,
+        from source: StitchedImage,
         excludedRegions: [CGRect] = [],
         completion: @escaping (Result<[String], Error>) -> Void
     ) {
-        guard let cgImage = image.cgImage else {
-            completion(.failure(RecipeParserError.invalidImage))
-            return
-        }
-
-        // Vision's boundingBox is normalized 0...1 with origin at the
-        // BOTTOM-left, the opposite of the top-left-origin rects the mask
-        // editor produces — flip each excluded rect's y once, up front,
-        // rather than flipping every OCR line's y repeatedly below.
-        let visionExcludedRegions = excludedRegions.map { rect in
-            CGRect(x: rect.minX, y: 1 - rect.minY - rect.height, width: rect.width, height: rect.height)
-        }
-
-        let request = VNRecognizeTextRequest { request, error in
-            if let error = error {
-                completion(.failure(error))
-                return
-            }
-            guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                completion(.success([]))
-                return
-            }
-
-            let positioned: [PositionedLine] = observations.compactMap { observation in
-                guard let text = observation.topCandidates(1).first?.string else { return nil }
-                let box = observation.boundingBox
-                let center = CGPoint(x: box.midX, y: box.midY)
-                if visionExcludedRegions.contains(where: { $0.contains(center) }) {
-                    return nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                var perSegment: [[PositionedLine]] = []
+                for segment in source.segments {
+                    perSegment.append(try recognize(segment, excludedRegions: excludedRegions))
                 }
-                // boundingBox is normalized 0...1 with origin at the
-                // bottom-left, so a larger maxY means higher on the page.
-                return PositionedLine(text: text, xLeft: box.minX, xMid: box.midX, yTop: box.maxY)
-            }
 
-            completion(.success(orderedLines(from: positioned)))
+                // Where two photos weren't pixel-joined (e.g. hand-held camera
+                // photos), their overlap can still show up as the same lines
+                // at the end of one and the start of the next.
+                var all: [PositionedLine] = []
+                var previous: [PositionedLine] = []
+                for (index, lines) in perSegment.enumerated() {
+                    var current = sortedTopToBottom(lines)
+                    if index > 0, !source.segments[index].joinedWithPrevious {
+                        current = removeSeamDuplicates(previous: previous, current: current)
+                    }
+                    all.append(contentsOf: current)
+                    previous = current
+                }
+
+                completion(.success(orderedLines(from: all)))
+            } catch {
+                completion(.failure(error))
+            }
         }
+    }
+
+    /// OCRs one segment's source image and returns its lines in composite
+    /// space, keeping only the rows the stitcher kept and dropping masked ones.
+    private static func recognize(
+        _ segment: StitchSegment, excludedRegions: [CGRect]
+    ) throws -> [PositionedLine] {
+        let image = segment.image
+        guard let cgImage = image.cgImage else { throw RecipeParserError.invalidImage }
+
+        let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
 
@@ -91,15 +99,56 @@ enum OCRTextExtractor {
             orientation: CGImagePropertyOrientation(image.imageOrientation),
             options: [:]
         )
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try handler.perform([request])
-            } catch {
-                DispatchQueue.main.async {
-                    completion(.failure(error))
-                }
-            }
+        try handler.perform([request])
+        guard let observations = request.results as? [VNRecognizedTextObservation] else { return [] }
+
+        let srcSpan = segment.srcBottom - segment.srcTop
+        let destSpan = segment.destBottom - segment.destTop
+        guard srcSpan > 0, destSpan > 0 else { return [] }
+
+        // Source-image fraction (top-left origin) -> composite fraction.
+        func toComposite(_ sourceY: CGFloat) -> CGFloat {
+            segment.destTop + (sourceY - segment.srcTop) * destSpan / srcSpan
         }
+
+        return observations.compactMap { observation in
+            guard let text = observation.topCandidates(1).first?.string else { return nil }
+            // boundingBox is normalized 0...1 with origin at the bottom-left.
+            let box = observation.boundingBox
+            let centerY = 1 - box.midY
+            guard centerY >= segment.srcTop, centerY < segment.srcBottom else { return nil }
+
+            let compositeCenter = toComposite(centerY)
+            let compositeTop = toComposite(1 - box.maxY)
+            let center = CGPoint(x: box.midX, y: compositeCenter)
+            if excludedRegions.contains(where: { $0.contains(center) }) { return nil }
+
+            // yTop stays in bottom-left-origin terms, as before: larger = higher.
+            return PositionedLine(text: text, xLeft: box.minX, xMid: box.midX, yTop: 1 - compositeTop)
+        }
+    }
+
+    /// Drops the first lines of `current` that repeat the last lines of
+    /// `previous` — the same text seen at the bottom of one photo and the top
+    /// of the next. Requires two or more matching lines, or one reasonably
+    /// long one, so a coincidental short repeat isn't removed.
+    private static func removeSeamDuplicates(
+        previous: [PositionedLine], current: [PositionedLine]
+    ) -> [PositionedLine] {
+        func key(_ line: PositionedLine) -> String {
+            line.text.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        }
+        let tail = previous.suffix(15).map(key)
+        let head = current.prefix(15).map(key)
+        var k = min(tail.count, head.count)
+        while k >= 1 {
+            if Array(tail.suffix(k)) == Array(head.prefix(k)),
+               k >= 2 || (head.first?.count ?? 0) >= 12 {
+                return Array(current.dropFirst(k))
+            }
+            k -= 1
+        }
+        return current
     }
 
     private struct PositionedLine {

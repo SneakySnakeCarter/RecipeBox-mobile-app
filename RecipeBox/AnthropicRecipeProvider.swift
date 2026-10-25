@@ -42,26 +42,26 @@ struct AnthropicRecipeProvider: AIRecipeProvider {
         )
     }
 
-    /// Vision path. Haiku-tier Claude models accept images; the photo is
+    /// Vision path. Haiku-tier Claude models accept images; each photo is
     /// downscaled before this point (see RecipeImageEncoder) to keep the
     /// image-token cost down. Output cap is a little higher than the text
     /// path since the model is also doing the reading.
     func requestRecipe(
-        fromJPEGData jpegData: Data,
+        fromJPEGImages jpegImages: [Data],
         apiKey: String,
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     ) {
-        let content: [[String: Any]] = [
+        var content: [[String: Any]] = jpegImages.map { jpeg in
             [
                 "type": "image",
                 "source": [
                     "type": "base64",
                     "media_type": "image/jpeg",
-                    "data": jpegData.base64EncodedString()
+                    "data": jpeg.base64EncodedString()
                 ]
-            ],
-            ["type": "text", "text": AIRecipePrompt.visionInstructions]
-        ]
+            ]
+        }
+        content.append(["type": "text", "text": AIRecipePrompt.visionInstructions])
         send(content: content, maxTokens: visionMaxTokens, apiKey: apiKey, completion: completion)
     }
 

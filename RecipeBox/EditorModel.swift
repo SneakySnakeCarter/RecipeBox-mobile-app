@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// State behind the recipe editor, kept in an object owned by
 /// ComparePagerView (not in RecipeEditView's own @State) so it survives the

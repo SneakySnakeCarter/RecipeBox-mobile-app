@@ -352,6 +352,172 @@ frame. The vision (AI) path was already correct: `RecipeImageEncoder`
 redraws with `image.draw(in:)`, which applies orientation. Untested on a
 device here.
 
+### Follow-up 7: structured recipe editor
+The editor is no longer one big text box. `RecipeEditView` is a form with
+one row per ingredient, step and tip, editable group headings, a
+collapsible Details section (servings, times, description, source), and
+Tips / Nutrition sections that appear when there is something in them.
+It is one page of the compare pager, so it scrolls on its own and the
+recipe's length never affects the photo page.
+
+- **Model:** `EditableRecipe.swift` is a separate editing type (all-String
+  fields, rows with stable UUIDs) converted from/to `StructuredRecipe`
+  (`init(from:)`, `toStructured()`). `StructuredRecipe` — the Codable shape
+  the AI returns and a database would store — is unchanged apart from
+  `renderedText(uppercaseGroupNames:)`.
+- **Plumbing:** parsers (`RecipeParsing`, `AIRecipeParser`,
+  `AIImageRecipeParser`, on-device `RecipeFormatter.structure`) now return
+  `StructuredRecipe` instead of rendered text; `ContentView` holds an
+  `EditableRecipe` and passes it to `ComparePagerView`.
+- **Row editing:** Return in a row starts a new row after it; pasting
+  several lines splits them into rows; "Reorder / Delete Rows" toggles
+  drag handles and delete controls; blank rows are dropped by
+  `toStructured()`.
+- **Text mode:** a Fields/Text switch keeps the old bulk-edit box. It shows
+  `toText()` and parses back into rows as you type
+  (`EditableRecipe.parse`), tolerant of missing bullets/numbers.
+- **AI Vision undo** restores the previous `EditableRecipe`.
+
+Not verified here (no Xcode): the Return/paste row splitting and focus
+handling, and drag reordering inside a `Form`, are the parts most likely to
+need tweaks on a device. `toStructured()` is the hook for the database work.
+
+### Follow-up 8: editor tweaks after first device test
+- **Details is one text block, collapsed by default.** `EditableRecipe`
+  now has a single `details` string instead of six fields. It holds one
+  labeled line per value ("Servings: 4", "Prep: 20 min", "Cook:", "Total:",
+  "Source:"); any other line is the description. It is split back into
+  `StructuredRecipe`'s separate fields only in `toStructured()`
+  (`parseDetails`), so typing is never reformatted under the cursor.
+- **Keyboard dismissal.** The old Done button only cleared focus for the
+  list rows; the title and details fields weren't tracked, so it did
+  nothing for them. Now: dragging the form down hides the keyboard
+  (`scrollDismissesKeyboard(.interactively)`), a "Hide Keyboard" button
+  appears next to "Reorder / Delete Rows" while the keyboard is up, and the
+  keyboard-toolbar Done button and mode switch all resign whichever field
+  is first responder.
+- **Groups only when the recipe looks grouped.** A recipe whose
+  ingredients/steps came back as one unnamed list shows a plain list — no
+  group-name field, no trash, no "add group" option. Group controls (names,
+  remove, "Add ingredient/instruction group") appear only when the recipe
+  already has named or multiple groups. The "Add section…" menu now offers
+  only Tip and Nutrition fact. To create groups on a recipe that didn't get
+  them, use Text mode and add a heading line ending in a colon, e.g.
+  "Sauce:" — switching back to Fields shows the groups.
+
+### Follow-up 9: explicit Save / Revert / Undo, and a landscape split view
+- **Drafts instead of live edits.** `EditorModel.swift` (new) holds the
+  committed `saved` recipe plus two independent drafts: `fieldsDraft` (the
+  Fields view) and `textDraft` (the Text view). Editing either changes only
+  its own draft; nothing reaches `saved` until **Save**. Switching between
+  Fields and Text no longer converts anything — each keeps its own pending
+  edits (a • on the segment label marks a view with unsaved edits).
+- **Save** commits the *current* view's draft (trimming, dropping empty
+  rows), then refreshes both drafts from the result. If the *other* view also
+  has unsaved edits, Save asks first, since it replaces them.
+- **Revert** discards unsaved edits in the current view. **Undo Last Save**
+  (in the ⋯ menu) steps back through up to 20 earlier saved versions; a save
+  that changes nothing doesn't add an undo step.
+- **Leaving with unsaved edits.** The back button (and swipe-back) is
+  replaced by one that asks "Discard unsaved changes?", and the AI Vision
+  re-read warns before replacing unsaved edits.
+- **Landscape.** In landscape the editor and the photo sit side by side with a
+  draggable divider (clamped to 25%–75%, remembered between launches via
+  `@AppStorage("compare.splitFraction")`); portrait keeps the swipeable
+  pages. The editor's state lives in `EditorModel`, owned by
+  `ComparePagerView`, so drafts survive rotation. Landscape is decided from
+  the whole-window size (measured ignoring safe areas) so the keyboard
+  shrinking an iPad's visible area can't flip it into the side-by-side layout.
+
+Not verified here (no Xcode): the divider drag feel, and how the editor's
+control bar fits on a small iPhone in landscape.
+
+### Follow-up 10: build fixes
+`EditorModel.swift` needed `import Combine` (it uses `ObservableObject` /
+`@Published`; SwiftUI's re-export isn't enough in newer SDKs). The
+`onChange(of:perform:)` calls were migrated to the two-parameter
+`onChange(of:) { oldValue, newValue in }` form, which requires iOS 17 or later
+as the deployment target — if you ever lower it below 17, switch these back.
+
+### Follow-up 11: thinner landscape header, smaller Re-read button
+- In landscape the "Compare" navigation bar is hidden. The editor shows a
+  single thin row instead: back chevron, small Fields/Text switch, ⋯ menu,
+  Revert, Save (`RecipeEditView(compact: true, onBack:, onUndoAIReread:)`).
+  Undo AI Re-read moves into the ⋯ menu there. Back still asks before
+  discarding unsaved edits. Portrait is unchanged (nav bar + two rows).
+- The AI Vision button is smaller and reads just "Re-read" (VoiceOver still
+  says "Re-read with AI Vision"); while working it shows "Reading…".
+
+### Follow-up 12: multi-photo import, stitched into one image
+Recipes that don't fit one photo (a long Instagram caption captured as
+several screenshots, a recipe photographed in pieces) can now be brought in
+as several photos that are joined top-to-bottom into one tall image.
+
+- **Getting photos in.** Library: pick up to 10 at once (`PhotoLibraryPicker`,
+  ordered selection; each is downsampled as it loads to keep memory sane).
+  Camera: after each shot a dialog offers Take Another / Done / Discard
+  (`ContentView`). One photo behaves exactly as before; two or more go to a
+  **Join Photos** screen (`StitchReviewView`) to drag-reorder, delete, and
+  choose "Remove overlapping areas", then Stitch.
+- **Stitching (`ImageStitcher.swift`).** Photos are upright-scaled to a common
+  width (max 1100 px) and stacked. With overlap removal on, each consecutive
+  pair is searched for repeated rows: a strip from near the top of the second
+  photo (below its header) is looked for in the first; on a match the run of
+  identical rows is measured and cut from both photos, which also drops
+  repeated headers/footers between photos. It is strict (pixel-level match, so
+  it works for screenshots, not hand-held photos) and falls back to plain
+  stacking when unsure — worst case is repeated content, not lost content. It
+  was prototyped and tested in Python first (`Tools/overlap_prototype/`:
+  multi-step scrolls, small overlaps, tall repeated headers, duplicate
+  screenshots, gaps, unrelated images, noise) and then ported to Swift; the
+  Swift port itself has not been compiled or run here.
+- **`StitchedImage`** carries the tall `composite` (for display and masking)
+  plus per-photo `segments`. Everything downstream now takes a
+  `StitchedImage` instead of a `UIImage`: `RecipeParsing`, `AIRecipeParser`,
+  `AIImageRecipeParser`, `OCRTextExtractor`, `ComparePagerView`, and
+  `MaskEditorView`. A single photo is just a one-segment `StitchedImage`.
+- **OCR** runs on each source photo separately (far more accurate than one
+  very tall image), maps the lines into composite coordinates, applies masks
+  there, and — where photos weren't pixel-joined — drops lines repeated at the
+  seam (`removeSeamDuplicates`, e.g. overlapping camera photos).
+- **AI Vision (Re-read)** sends each photo as its own JPEG (a 12,000-px-tall
+  stitched image would shrink to unreadable), cropped to the kept rows and with
+  masked areas painted white; both providers accept multiple images, and the
+  prompts tell the model they are consecutive pieces of one page.
+- **Mask editor.** Boxes are now stored as fractions, so they survive
+  rotation. A tall composite is shown at full width in a scroll view with a
+  Scroll / Draw switch (a drag can't both scroll and draw), and notes how many
+  photos were joined and how many overlaps removed.
+
+Memory: up to 10 photos are held at once plus the composite (~1100 px wide);
+if the app is ever killed on huge sets, lower `PhotoImportLimits.maxPhotos`.
+
+### Follow-up 13: Share Extension and "Paste Recipe Text"
+RecipeBox can now receive images and text from the iOS share sheet
+(Photos, Safari, Notes…), and has a **Paste Recipe Text** button on the
+home screen.
+
+- **Hand-off:** the extension (`ShareExtension/ShareViewController.swift`)
+  saves the shared items into a folder in a shared **App Group**
+  (`SharedInbox.swift`, compiled into both targets). It does no OCR/AI work
+  and never touches the API key, so no Keychain sharing is needed.
+- **Pickup:** `ContentView` checks the inbox when the app becomes active and
+  whenever it goes idle (nothing on screen or running). Images enter the
+  existing flow (`beginImport` → review/stitch → mask → parse); text goes
+  straight to the AI text path. A missing API key leaves the batch waiting.
+- **Text path:** `TextRecipeParser` (in `TextRecipeSupport.swift`) calls
+  `requestRecipe(fromOCRText:)` directly (or the on-device formatter). With no
+  photo, `TextCardRenderer` draws the text onto a plain page so the Compare
+  screen's "original" page still has something to show.
+- **Links:** a shared URL on its own is declined with a message (links can't
+  be read), pointing to screenshots or pasted text.
+- **Setup:** see `ShareExtension/SETUP.md` (new target, activation rule
+  `Info.plist.NSExtension.xml`, App Groups on both targets, set `appGroupID`).
+
+New files: `SharedInbox.swift`, `TextRecipeSupport.swift`,
+`PasteRecipeView.swift`, `ShareExtension/*`. Changed: `ContentView.swift`.
+Not compiled here (no Swift toolchain) — expect to fix small build errors.
+
 ## Further cost levers if needed
 - **Cascade to AI only when needed**: run the on-device heuristic first;
   if it produces a suspiciously empty/short result, only then call the

@@ -40,20 +40,20 @@ struct OpenAIRecipeProvider: AIRecipeProvider {
     /// Vision path. gpt-4o-mini accepts images; "detail": "high" lets it
     /// read small print at the cost of more image tokens.
     func requestRecipe(
-        fromJPEGData jpegData: Data,
+        fromJPEGImages jpegImages: [Data],
         apiKey: String,
         completion: @escaping (Result<StructuredRecipe, Error>) -> Void
     ) {
-        let content: [[String: Any]] = [
-            ["type": "text", "text": AIRecipePrompt.visionInstructions],
-            [
+        var content: [[String: Any]] = [["type": "text", "text": AIRecipePrompt.visionInstructions]]
+        for jpeg in jpegImages {
+            content.append([
                 "type": "image_url",
                 "image_url": [
-                    "url": "data:image/jpeg;base64,\(jpegData.base64EncodedString())",
+                    "url": "data:image/jpeg;base64,\(jpeg.base64EncodedString())",
                     "detail": "high"
                 ]
-            ]
-        ]
+            ])
+        }
         send(content: content, maxTokens: visionMaxTokens, apiKey: apiKey, completion: completion)
     }
 

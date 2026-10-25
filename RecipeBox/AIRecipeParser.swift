@@ -13,8 +13,8 @@ struct AIRecipeParser: RecipeParsing {
     let provider: AIRecipeProvider
     let apiKey: String
 
-    func parseRecipe(from image: UIImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
-        OCRTextExtractor.extractLines(from: image, excludedRegions: excludedRegions) { ocrResult in
+    func parseRecipe(from source: StitchedImage, excludedRegions: [CGRect], completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
+        OCRTextExtractor.extractLines(from: source, excludedRegions: excludedRegions) { ocrResult in
             switch ocrResult {
             case .failure(let error):
                 completion(.failure(error))
@@ -59,13 +59,14 @@ struct AIImageRecipeParser {
     /// Regions blocked out in MaskEditorView; painted white before upload.
     let excludedRegions: [CGRect]
 
-    func parseRecipe(from image: UIImage, completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
+    func parseRecipe(from source: StitchedImage, completion: @escaping (Result<StructuredRecipe, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let jpeg = RecipeImageEncoder.jpegData(from: image, blockingRegions: excludedRegions) else {
+            let pieces = RecipeImageEncoder.jpegPieces(from: source, blockingRegions: excludedRegions)
+            guard !pieces.isEmpty else {
                 completion(.failure(AIProviderError.imageEncodingFailed))
                 return
             }
-            provider.requestRecipe(fromJPEGData: jpeg, apiKey: apiKey) { result in
+            provider.requestRecipe(fromJPEGImages: pieces, apiKey: apiKey) { result in
                 switch result {
                 case .success(let recipe):
                     if recipe.hasAnyContent {

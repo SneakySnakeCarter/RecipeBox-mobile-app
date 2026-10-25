@@ -5,7 +5,15 @@ struct ContentView: View {
     @State private var showSourceDialog = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
-    @State private var selectedImage: UIImage?
+    /// Photos picked or taken for one recipe, before they're stitched.
+    @State private var importImages: [UIImage] = []
+    /// The recipe page everything downstream works on: one photo, or several
+    /// stitched into one tall image.
+    @State private var source: StitchedImage?
+    @State private var showStitchReview = false
+    /// Photos taken so far in a camera session (each shot reopens the camera).
+    @State private var capturedImages: [UIImage] = []
+    @State private var showCameraNext = false
     @State private var recipe = EditableRecipe()
     @State private var isParsing = false
     @State private var parseError: String?
@@ -16,6 +24,11 @@ struct ContentView: View {
     /// Kept after parsing so the photo page's AI Vision button can paint
     /// the same blocked-out areas white before uploading.
     @State private var excludedRegions: [CGRect] = []
+    @State private var showPasteSheet = false
+    /// True while a shared batch is being read from the App Group inbox.
+    @State private var isLoadingShared = false
+
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage(ParserSettingsKeys.selectedEngine)
     private var selectedEngineRaw: String = ParserEngine.claude.rawValue
@@ -29,6 +42,17 @@ struct ContentView: View {
         guard let provider = selectedEngine.aiProvider else { return false }
         let key = KeychainHelper.shared.read(forKey: provider.apiKeyStorageKey) ?? ""
         return key.isEmpty
+    }
+
+    /// Nothing is on screen or running, so it is safe to start an import that
+    /// arrived from the Share Extension without pulling the rug out from
+    /// under whatever the person is doing.
+    private var isIdle: Bool {
+        !isParsing && !isLoadingShared
+            && !showMaskEditor && !showStitchReview && !navigateToCompare
+            && !showSourceDialog && !showPhotoPicker && !showCamera && !showCameraNext
+            && !showPasteSheet && !showSettings && !showAPIKeyPrompt
+            && capturedImages.isEmpty
     }
 
     var body: some View {
@@ -45,7 +69,7 @@ struct ContentView: View {
                 Text("RecipeBox")
                     .font(.largeTitle.bold())
 
-                Text("Snap or choose a photo of a recipe and AI will turn it into editable text you can compare side-by-side with the original.")
+                Text("Snap or choose photos of a recipe — several are stitched into one — and AI will turn it into editable text you can compare side-by-side with the original.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -73,13 +97,24 @@ struct ContentView: View {
                             showSourceDialog = true
                         }
                     } label: {
-                        Label("Add Recipe Photo", systemImage: "camera.fill")
+                        Label("Add Recipe Photos", systemImage: "camera.fill")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding()
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.horizontal, 32)
+
+                    Button {
+                        if needsAPIKeySetup {
+                            showAPIKeyPrompt = true
+                        } else {
+                            showPasteSheet = true
+                        }
+                    } label: {
+                        Label("Paste Recipe Text", systemImage: "doc.on.clipboard")
+                            .font(.subheadline)
+                    }
                 }
 
                 if let parseError {
@@ -104,44 +139,83 @@ struct ContentView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
+            .sheet(isPresented: $showPasteSheet) {
+                PasteRecipeView { text in startTextImport(text) }
+            }
+            // Pick up anything sent from the Share Extension.
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                if phase == .active { importSharedItems(promptForKey: true) }
+            }
+            .onChange(of: isIdle) { _, idle in
+                if idle { importSharedItems(promptForKey: false) }
+            }
             .alert("API Key Needed", isPresented: $showAPIKeyPrompt) {
                 Button("Open Settings") { showSettings = true }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("\(selectedEngine.displayName) needs an API key before it can read a recipe. Add one in Settings.")
             }
-            .confirmationDialog("Add a photo", isPresented: $showSourceDialog, titleVisibility: .visible) {
-                Button("Take Photo") { showCamera = true }
-                Button("Choose from Library") { showPhotoPicker = true }
+            .confirmationDialog("Add photos", isPresented: $showSourceDialog, titleVisibility: .visible) {
+                Button("Take Photo") {
+                    capturedImages = []
+                    showCamera = true
+                }
+                Button("Choose from Library (up to \(PhotoImportLimits.maxPhotos))") { showPhotoPicker = true }
                 Button("Cancel", role: .cancel) {}
             }
             .sheet(isPresented: $showPhotoPicker) {
-                PhotoLibraryPicker(image: $selectedImage)
+                PhotoLibraryPicker { images in
+                    showPhotoPicker = false
+                    beginImport(images)
+                }
             }
             .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker(image: $selectedImage)
+                CameraPicker(
+                    onCaptured: { image in
+                        capturedImages.append(image)
+                        showCamera = false
+                        askAboutMoreCameraPhotos()
+                    },
+                    onCancel: {
+                        showCamera = false
+                        if !capturedImages.isEmpty { askAboutMoreCameraPhotos() }
+                    }
+                )
             }
-            .onChange(of: selectedImage) { newImage in
-                guard newImage != nil else { return }
-                // Let the person block out any part of the photo (e.g. a
-                // different recipe's text on the same page) before OCR
-                // ever runs, rather than parsing immediately.
-                parseError = nil
-                excludedRegions = []
-                showMaskEditor = true
+            .confirmationDialog(
+                "\(capturedImages.count) photo\(capturedImages.count == 1 ? "" : "s") taken",
+                isPresented: $showCameraNext,
+                titleVisibility: .visible
+            ) {
+                if capturedImages.count < PhotoImportLimits.maxPhotos {
+                    Button("Take Another") { showCamera = true }
+                }
+                Button("Done") {
+                    let photos = capturedImages
+                    capturedImages = []
+                    beginImport(photos)
+                }
+                Button("Discard Photos", role: .destructive) { capturedImages = [] }
+            }
+            .navigationDestination(isPresented: $showStitchReview) {
+                StitchReviewView(images: $importImages) { stitched in
+                    source = stitched
+                    excludedRegions = []
+                    showMaskEditor = true
+                }
             }
             .navigationDestination(isPresented: $showMaskEditor) {
-                if let selectedImage {
-                    MaskEditorView(image: selectedImage, isParsing: $isParsing) { regions in
+                if let source {
+                    MaskEditorView(source: source, isParsing: $isParsing) { regions in
                         excludedRegions = regions
-                        parse(image: selectedImage, excludedRegions: regions)
+                        parse(source: source, excludedRegions: regions)
                     }
                 }
             }
             .navigationDestination(isPresented: $navigateToCompare) {
-                if let selectedImage {
+                if let source {
                     ComparePagerView(
-                        originalImage: selectedImage,
+                        source: source,
                         excludedRegions: excludedRegions,
                         recipe: $recipe
                     )
@@ -150,11 +224,91 @@ struct ContentView: View {
         }
     }
 
-    private func parse(image: UIImage, excludedRegions: [CGRect]) {
+    /// Photos arrive here from the library picker or the camera session. One
+    /// photo goes straight to the mask step; several get a review/stitch
+    /// step first.
+    private func beginImport(_ images: [UIImage]) {
+        guard !images.isEmpty else { return }
+        parseError = nil
+        excludedRegions = []
+        if images.count == 1 {
+            source = .single(images[0])
+            showMaskEditor = true
+        } else {
+            importImages = images
+            showStitchReview = true
+        }
+    }
+
+    // MARK: - Shared items and pasted text
+
+    /// Imports the oldest batch waiting in the Share Extension's inbox.
+    /// Does nothing unless the app is idle, and leaves the batch in place
+    /// (not lost) when an API key is still missing.
+    private func importSharedItems(promptForKey: Bool) {
+        guard isIdle, let batch = SharedInbox.pendingBatches().first else { return }
+        if needsAPIKeySetup {
+            if promptForKey { showAPIKeyPrompt = true }
+            return
+        }
+
+        if !batch.imageFiles.isEmpty {
+            isLoadingShared = true
+            let limit = PhotoImportLimits.maxPhotos
+            DispatchQueue.global(qos: .userInitiated).async {
+                let images = Array(SharedInbox.loadImages(from: batch).prefix(limit))
+                DispatchQueue.main.async {
+                    isLoadingShared = false
+                    SharedInbox.remove(batch)
+                    if images.isEmpty {
+                        parseError = "The shared images couldn't be opened."
+                    } else {
+                        beginImport(images)
+                    }
+                }
+            }
+        } else if !batch.text.isEmpty {
+            SharedInbox.remove(batch)
+            startTextImport(batch.text)
+        } else {
+            SharedInbox.remove(batch)
+        }
+    }
+
+    /// Text (pasted or shared) skips the photo and OCR steps entirely.
+    private func startTextImport(_ text: String) {
+        isParsing = true
+        parseError = nil
+        TextRecipeParser.parse(text) { result in
+            DispatchQueue.main.async {
+                isParsing = false
+                switch result {
+                case .success(let parsed):
+                    // The "original" page shows the text itself.
+                    source = TextCardRenderer.render(text)
+                    excludedRegions = []
+                    recipe = EditableRecipe(from: parsed)
+                    navigateToCompare = true
+                case .failure(let error):
+                    parseError = "Couldn't read the recipe: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// The camera cover needs a moment to finish dismissing before another
+    /// presentation can start.
+    private func askAboutMoreCameraPhotos() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            showCameraNext = true
+        }
+    }
+
+    private func parse(source: StitchedImage, excludedRegions: [CGRect]) {
         isParsing = true
         parseError = nil
         let parser = RecipeParserFactory.makeParser()
-        parser.parseRecipe(from: image, excludedRegions: excludedRegions) { result in
+        parser.parseRecipe(from: source, excludedRegions: excludedRegions) { result in
             DispatchQueue.main.async {
                 isParsing = false
                 switch result {
@@ -164,9 +318,10 @@ struct ContentView: View {
                 case .failure(let error):
                     parseError = "Couldn't read the recipe: \(error.localizedDescription)"
                     // The error banner lives on this root screen, not on
-                    // MaskEditorView, so pop back to it to make sure the
-                    // person actually sees why it failed.
+                    // the mask / join screens, so pop back to it to make
+                    // sure the person actually sees why it failed.
                     showMaskEditor = false
+                    showStitchReview = false
                 }
             }
         }
