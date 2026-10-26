@@ -12,6 +12,12 @@ struct EditableLine: Identifiable, Equatable {
         self.id = UUID()
         self.text = text
     }
+
+    /// Restores a row with its saved id (loading from the database).
+    init(id: UUID, text: String) {
+        self.id = id
+        self.text = text
+    }
 }
 
 /// A group of rows with an optional heading ("Vinaigrette", "Assemble").
@@ -26,6 +32,12 @@ struct EditableGroup: Identifiable, Equatable {
         self.name = name
         self.lines = lines
     }
+
+    init(id: UUID, name: String, lines: [EditableLine]) {
+        self.id = id
+        self.name = name
+        self.lines = lines
+    }
 }
 
 struct EditableFact: Identifiable, Equatable {
@@ -35,6 +47,12 @@ struct EditableFact: Identifiable, Equatable {
 
     init(label: String = "", value: String = "") {
         self.id = UUID()
+        self.label = label
+        self.value = value
+    }
+
+    init(id: UUID, label: String, value: String) {
+        self.id = id
         self.label = label
         self.value = value
     }
@@ -62,6 +80,10 @@ struct EditableRecipe: Equatable {
     var instructionGroups: [EditableGroup] = [EditableGroup()]
     var tips: [EditableLine] = []
     var nutrition: [EditableFact] = []
+    /// Up to RecipePhotoLimits.maxPerRecipe pictures, each tied to an
+    /// ingredient row, a step row, or (neither) the recipe itself. Not part
+    /// of the recipe text, so StructuredRecipe / the Text view never see it.
+    var photos: [RecipePhoto] = []
 
     init() {}
 
@@ -115,6 +137,88 @@ struct EditableRecipe: Equatable {
             nutrition: facts,
             source: clean(parsedDetails.source)
         )
+    }
+
+    // MARK: - Cleaning and row identity
+
+    /// A tidy copy: text trimmed, empty rows and groups dropped, details
+    /// normalized. Unlike `EditableRecipe(from: toStructured())` this keeps
+    /// every surviving row's id (and the pictures), which is what keeps a
+    /// picture tied to the same ingredient or step across a Save.
+    func cleaned() -> EditableRecipe {
+        func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        func cleanGroups(_ groups: [EditableGroup]) -> [EditableGroup] {
+            let result: [EditableGroup] = groups.compactMap { group in
+                let lines = group.lines
+                    .filter { !trimmed($0.text).isEmpty }
+                    .map { EditableLine(id: $0.id, text: trimmed($0.text)) }
+                return lines.isEmpty ? nil : EditableGroup(id: group.id, name: trimmed(group.name), lines: lines)
+            }
+            return result.isEmpty ? [EditableGroup()] : result
+        }
+
+        // Title, details, etc. come from the structured round trip.
+        var result = EditableRecipe(from: toStructured())
+        result.ingredientGroups = cleanGroups(ingredientGroups)
+        result.instructionGroups = cleanGroups(instructionGroups)
+        result.tips = tips
+            .filter { !trimmed($0.text).isEmpty }
+            .map { EditableLine(id: $0.id, text: trimmed($0.text)) }
+        result.nutrition = nutrition
+            .filter { !trimmed($0.label).isEmpty }
+            .map { EditableFact(id: $0.id, label: trimmed($0.label), value: trimmed($0.value)) }
+        result.photos = photos
+        result.dropDanglingPhotoTies()
+        return result
+    }
+
+    /// Gives rows whose text matches a row in `old` that row's id, so that
+    /// pictures tied to it stay tied after the recipe text was edited as
+    /// plain text (which re-creates every row). Matching is by exact text,
+    /// in order, so duplicate lines pair up one-to-one.
+    mutating func adoptRowIDs(from old: EditableRecipe) {
+        func adopt(_ groups: inout [EditableGroup], from oldGroups: [EditableGroup]) {
+            var available: [String: [UUID]] = [:]
+            for line in oldGroups.flatMap({ $0.lines }) {
+                available[line.text.trimmingCharacters(in: .whitespacesAndNewlines), default: []].append(line.id)
+            }
+            for g in groups.indices {
+                for l in groups[g].lines.indices {
+                    let key = groups[g].lines[l].text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if var ids = available[key], !ids.isEmpty {
+                        let id = ids.removeFirst()
+                        available[key] = ids
+                        groups[g].lines[l] = EditableLine(id: id, text: groups[g].lines[l].text)
+                    }
+                }
+            }
+        }
+        adopt(&ingredientGroups, from: old.ingredientGroups)
+        adopt(&instructionGroups, from: old.instructionGroups)
+    }
+
+    /// Pictures tied to an ingredient or step that no longer exists fall
+    /// back to belonging to the recipe itself, rather than being lost.
+    mutating func dropDanglingPhotoTies() {
+        let ingredientIDs = Set(ingredientGroups.flatMap { $0.lines.map(\.id) })
+        let stepIDs = Set(instructionGroups.flatMap { $0.lines.map(\.id) })
+        for index in photos.indices {
+            switch photos[index].attachment {
+            case .recipe: break
+            case .ingredient(let id): if !ingredientIDs.contains(id) { photos[index].attachment = .recipe }
+            case .step(let id): if !stepIDs.contains(id) { photos[index].attachment = .recipe }
+            }
+        }
+    }
+
+    /// The same pictures, all attached to the recipe as a whole — used when
+    /// an AI re-read replaces every ingredient and step with new rows.
+    var photosDetachedFromRows: [RecipePhoto] {
+        photos.map { photo in
+            var copy = photo
+            copy.attachment = .recipe
+            return copy
+        }
     }
 
     // MARK: - Details block

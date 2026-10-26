@@ -71,12 +71,19 @@ final class EditorModel: ObservableObject {
         let candidate: EditableRecipe
         switch mode {
         case .fields:
-            candidate = EditableRecipe(from: fieldsDraft.toStructured())
+            // Keeps row ids and pictures (see EditableRecipe.cleaned()).
+            candidate = fieldsDraft.cleaned()
         case .text:
-            candidate = EditableRecipe(from: EditableRecipe.parse(text: textDraft).toStructured())
+            // Re-reading the text makes every row new; hand back the old ids
+            // where a row's text is unchanged so its pictures stay tied.
+            var parsed = EditableRecipe(from: EditableRecipe.parse(text: textDraft).toStructured())
+            parsed.adoptRowIDs(from: saved)
+            parsed.photos = saved.photos
+            parsed.dropDanglingPhotoTies()
+            candidate = parsed
         }
         // Only record an undo step if something actually changed.
-        if candidate.toText() != saved.toText() {
+        if candidate.toText() != saved.toText() || candidate.photos != saved.photos {
             history.append(saved)
             if history.count > maxHistory { history.removeFirst() }
         }

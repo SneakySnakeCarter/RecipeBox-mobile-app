@@ -17,6 +17,10 @@ struct RecipeEditView: View {
     var compact = false
     var onBack: (() -> Void)?
     var onUndoAIReread: (() -> Void)?
+    /// Landscape only (portrait has the bookmark in the nav bar): add the
+    /// recipe to My Recipes.
+    var inLibrary = false
+    var onLibrary: (() -> Void)?
 
     @State private var editMode: EditMode = .inactive
     @State private var keyboardVisible = false
@@ -29,12 +33,16 @@ struct RecipeEditView: View {
         model: EditorModel,
         compact: Bool = false,
         onBack: (() -> Void)? = nil,
-        onUndoAIReread: (() -> Void)? = nil
+        onUndoAIReread: (() -> Void)? = nil,
+        inLibrary: Bool = false,
+        onLibrary: (() -> Void)? = nil
     ) {
         self.model = model
         self.compact = compact
         self.onBack = onBack
         self.onUndoAIReread = onUndoAIReread
+        self.inLibrary = inLibrary
+        self.onLibrary = onLibrary
     }
 
     var body: some View {
@@ -54,9 +62,13 @@ struct RecipeEditView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { Self.hideKeyboard() }
+            // Landscape has no height to spare: skip the extra keyboard row
+            // (its thin top bar already has a hide-keyboard button).
+            if !compact {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { Self.hideKeyboard() }
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -212,6 +224,12 @@ struct RecipeEditView: View {
 
             moreMenu
 
+            if let onLibrary {
+                Button(action: onLibrary) {
+                    Image(systemName: inLibrary ? "bookmark.fill" : "bookmark")
+                }
+            }
+
             if keyboardVisible { hideKeyboardButton }
 
             Spacer(minLength: 0)
@@ -229,7 +247,7 @@ struct RecipeEditView: View {
     private var textEditor: some View {
         TextEditor(text: $model.textDraft)
             .font(.body)
-            .padding(12)
+            .padding(compact ? 6 : 12)
             .focused($textFocused)
             .scrollDismissesKeyboard(.interactively)
     }
@@ -244,9 +262,13 @@ struct RecipeEditView: View {
             instructionSections
             tipsSection
             nutritionSection
+            RecipePhotosSection(recipe: $model.fieldsDraft)
             addSectionMenu
         }
         .environment(\.editMode, $editMode)
+        // Landscape: tighter rows and section gaps so more fits above the keyboard.
+        .environment(\.defaultMinListRowHeight, compact ? 32 : 44)
+        .listSectionSpacing(compact ? .compact : .default)
         // Dragging the list down hides the keyboard, wherever it is.
         .scrollDismissesKeyboard(.interactively)
     }
@@ -283,6 +305,7 @@ struct RecipeEditView: View {
                         lines: $group.lines,
                         placeholder: "Ingredient",
                         addTitle: "Add ingredient",
+                        photoCounts: photoCounts(for: .ingredient),
                         focusedID: $focusedID
                     )
                 } header: {
@@ -316,6 +339,7 @@ struct RecipeEditView: View {
                         placeholder: "Step",
                         addTitle: "Add step",
                         numbered: true,
+                        photoCounts: photoCounts(for: .step),
                         focusedID: $focusedID
                     )
                 } header: {
@@ -391,6 +415,21 @@ struct RecipeEditView: View {
         }
     }
 
+    /// How many pictures are tied to each ingredient / step row, for the
+    /// little photo badge on those rows.
+    private func photoCounts(for kind: PhotoRowKind) -> [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for photo in model.fieldsDraft.photos {
+            switch (kind, photo.attachment) {
+            case (.ingredient, .ingredient(let id)), (.step, .step(let id)):
+                counts[id, default: 0] += 1
+            default:
+                break
+            }
+        }
+        return counts
+    }
+
     private func groupHeader(
         title: String?,
         name: Binding<String>,
@@ -420,6 +459,8 @@ struct RecipeEditView: View {
     }
 }
 
+private enum PhotoRowKind { case ingredient, step }
+
 /// A list of single-line-or-wrapping text rows with add / delete / reorder.
 /// Pressing Return inside a row starts a new row after it, and pasting
 /// several lines splits them into separate rows.
@@ -428,6 +469,7 @@ private struct LineRows: View {
     let placeholder: String
     let addTitle: String
     var numbered = false
+    var photoCounts: [UUID: Int] = [:]
     @FocusState.Binding var focusedID: UUID?
 
     var body: some View {
@@ -444,6 +486,12 @@ private struct LineRows: View {
                     .onChange(of: line.text) { _, newValue in
                         if newValue.contains("\n") { split(line.id, newValue) }
                     }
+                if let count = photoCounts[line.id] {
+                    Label("\(count)", systemImage: "photo")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                }
             }
         }
         .onDelete { lines.remove(atOffsets: $0) }

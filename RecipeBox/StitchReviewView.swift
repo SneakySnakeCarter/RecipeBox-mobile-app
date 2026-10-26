@@ -4,7 +4,7 @@ import SwiftUI
 /// stitched: reorder or remove photos, choose whether to cut out overlap,
 /// then Stitch joins them top-to-bottom into one tall image.
 struct StitchReviewView: View {
-    @Binding var images: [UIImage]
+    @Binding var images: [ImportedImage]
     let onStitched: (StitchedImage) -> Void
 
     @State private var removeOverlap = true
@@ -15,9 +15,9 @@ struct StitchReviewView: View {
         VStack(spacing: 0) {
             List {
                 Section {
-                    ForEach(Array(images.enumerated()), id: \.offset) { index, image in
+                    ForEach(Array(images.enumerated()), id: \.offset) { index, item in
                         HStack(spacing: 12) {
-                            Image(uiImage: image)
+                            Image(uiImage: item.image)
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: 56, height: 56)
@@ -74,7 +74,7 @@ struct StitchReviewView: View {
 
     private func stitch() {
         isStitching = true
-        let photos = images
+        let photos = images.map(\.image)
         let overlap = removeOverlap
         DispatchQueue.global(qos: .userInitiated).async {
             let result = ImageStitcher.stitch(photos, removeOverlap: overlap)

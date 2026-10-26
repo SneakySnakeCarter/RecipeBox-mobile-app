@@ -14,6 +14,14 @@
 		11D9FF4C97DFC658167D953C /* ImageDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775A12F23352331F2E4551AA /* ImageDisplayView.swift */; };
 		12A28D57B4DDB1EFE4234DDF /* ComparePagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB115DA642DA8F950C8F9173 /* ComparePagerView.swift */; };
 		1F7624CE61CB0615BA11CE7D /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D99DF0E4699BD1D5DA3017 /* ShareViewController.swift */; };
+		2279EEC6308ECB0B0085B55B /* IngredientSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEBF308ECB0B0085B55B /* IngredientSearch.swift */; };
+		2279EEC7308ECB0B0085B55B /* IngredientNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEBE308ECB0B0085B55B /* IngredientNormalizer.swift */; };
+		2279EEC8308ECB0B0085B55B /* RecipeSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC4308ECB0B0085B55B /* RecipeSchema.swift */; };
+		2279EEC9308ECB0B0085B55B /* RecipePhotosSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC3308ECB0B0085B55B /* RecipePhotosSection.swift */; };
+		2279EECA308ECB0B0085B55B /* RecipeLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC1308ECB0B0085B55B /* RecipeLibrary.swift */; };
+		2279EECB308ECB0B0085B55B /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC0308ECB0B0085B55B /* LibraryView.swift */; };
+		2279EECC308ECB0B0085B55B /* RecipePhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC2308ECB0B0085B55B /* RecipePhoto.swift */; };
+		2279EECD308ECB0B0085B55B /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC5308ECB0B0085B55B /* SQLiteDatabase.swift */; };
 		23B1BEA414659F71C6AA9D81 /* RecipeBoxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9ECEBC6F29B8F53322D61D /* RecipeBoxApp.swift */; };
 		2A7D6F3F43703E7CEB4C5F71 /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F5C428073D1336C959529E4 /* SharedInbox.swift */; };
 		3C1E26B6CB8ECF3B1415C44D /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F5C428073D1336C959529E4 /* SharedInbox.swift */; };
@@ -67,6 +75,14 @@
 		0D0E8B1817F1F8C1F4532726 /* TextRecipeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRecipeSupport.swift; sourceTree = "<group>"; };
 		1DFB93F8179982757A281369 /* EditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModel.swift; sourceTree = "<group>"; };
 		21BE76B5F00F3DD62905D8FA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		2279EEBE308ECB0B0085B55B /* IngredientNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientNormalizer.swift; sourceTree = "<group>"; };
+		2279EEBF308ECB0B0085B55B /* IngredientSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientSearch.swift; sourceTree = "<group>"; };
+		2279EEC0308ECB0B0085B55B /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		2279EEC1308ECB0B0085B55B /* RecipeLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeLibrary.swift; sourceTree = "<group>"; };
+		2279EEC2308ECB0B0085B55B /* RecipePhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePhoto.swift; sourceTree = "<group>"; };
+		2279EEC3308ECB0B0085B55B /* RecipePhotosSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePhotosSection.swift; sourceTree = "<group>"; };
+		2279EEC4308ECB0B0085B55B /* RecipeSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeSchema.swift; sourceTree = "<group>"; };
+		2279EEC5308ECB0B0085B55B /* SQLiteDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteDatabase.swift; sourceTree = "<group>"; };
 		2C1BBD469097F9BAE65F50D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2DB0C2F082280DBB673C94CD /* RecipeEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditView.swift; sourceTree = "<group>"; };
 		3632032485586D8589D044A9 /* OCRTextExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTextExtractor.swift; sourceTree = "<group>"; };
@@ -157,6 +173,14 @@
 				0D0E8B1817F1F8C1F4532726 /* TextRecipeSupport.swift */,
 				2C1BBD469097F9BAE65F50D8 /* Assets.xcassets */,
 				B75A5A1C1CD5C5D5F17682AB /* RecipeBox.entitlements */,
+				2279EEBE308ECB0B0085B55B /* IngredientNormalizer.swift */,
+				2279EEBF308ECB0B0085B55B /* IngredientSearch.swift */,
+				2279EEC0308ECB0B0085B55B /* LibraryView.swift */,
+				2279EEC1308ECB0B0085B55B /* RecipeLibrary.swift */,
+				2279EEC2308ECB0B0085B55B /* RecipePhoto.swift */,
+				2279EEC3308ECB0B0085B55B /* RecipePhotosSection.swift */,
+				2279EEC4308ECB0B0085B55B /* RecipeSchema.swift */,
+				2279EEC5308ECB0B0085B55B /* SQLiteDatabase.swift */,
 			);
 			path = RecipeBox;
 			sourceTree = "<group>";
@@ -314,6 +338,14 @@
 				5C81EDAC40A9873E7767906B /* StitchReviewView.swift in Sources */,
 				633208596D420A316F9E046F /* StructuredRecipe.swift in Sources */,
 				46BBBE80451F6301764AA607 /* TextRecipeSupport.swift in Sources */,
+				2279EEC6308ECB0B0085B55B /* IngredientSearch.swift in Sources */,
+				2279EEC7308ECB0B0085B55B /* IngredientNormalizer.swift in Sources */,
+				2279EEC8308ECB0B0085B55B /* RecipeSchema.swift in Sources */,
+				2279EEC9308ECB0B0085B55B /* RecipePhotosSection.swift in Sources */,
+				2279EECA308ECB0B0085B55B /* RecipeLibrary.swift in Sources */,
+				2279EECB308ECB0B0085B55B /* LibraryView.swift in Sources */,
+				2279EECC308ECB0B0085B55B /* RecipePhoto.swift in Sources */,
+				2279EECD308ECB0B0085B55B /* SQLiteDatabase.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

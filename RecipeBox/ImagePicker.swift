@@ -8,17 +8,30 @@ enum PhotoImportLimits {
     static let maxPhotos = 10
 }
 
+/// A photo chosen from the library: the decoded image plus the library
+/// item's identifier (nil if the system didn't provide one), so the app can
+/// keep a reference to the original instead of a copy.
+struct PickedPhoto {
+    let image: UIImage
+    let assetID: String?
+}
+
 /// Picks one or more photos from the user's library, in the order they were
 /// selected. Photos are downsampled as they load (a 12-megapixel original
 /// decoded in full is ~48 MB, and ten of them would be trouble) — to 4096 px
 /// on the long edge for a single photo, 2400 px when several are chosen.
 struct PhotoLibraryPicker: UIViewControllerRepresentable {
-    let onPicked: ([UIImage]) -> Void
+    var selectionLimit = PhotoImportLimits.maxPhotos
+    /// Long edge for photos chosen one at a time; several are always 2400.
+    var singlePhotoMaxPixel = 4096
+    let onPicked: ([PickedPhoto]) -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
+        // Created with the shared library so each result carries its
+        // assetIdentifier (needed to store a reference instead of a copy).
+        var config = PHPickerConfiguration(photoLibrary: .shared())
         config.filter = .images
-        config.selectionLimit = PhotoImportLimits.maxPhotos
+        config.selectionLimit = max(1, selectionLimit)
         config.selection = .ordered
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = context.coordinator
@@ -39,8 +52,8 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
             picker.dismiss(animated: true)
             guard !results.isEmpty else { return }
 
-            let maxPixel = results.count == 1 ? 4096 : 2400
-            var images = [UIImage?](repeating: nil, count: results.count)
+            let maxPixel = results.count == 1 ? parent.singlePhotoMaxPixel : 2400
+            var images = [PickedPhoto?](repeating: nil, count: results.count)
             let lock = NSLock()
             let group = DispatchGroup()
 
@@ -51,8 +64,9 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
                 ) { data, _ in
                     defer { group.leave() }
                     guard let data, let image = Self.downsampledImage(from: data, maxPixel: maxPixel) else { return }
+                    let picked = PickedPhoto(image: image, assetID: result.assetIdentifier)
                     lock.lock()
-                    images[index] = image
+                    images[index] = picked
                     lock.unlock()
                 }
             }
@@ -142,4 +156,13 @@ extension UIImage {
             draw(in: CGRect(origin: .zero, size: target))
         }
     }
+}
+
+/// A photo on its way into a recipe: the decoded image, and where the
+/// original is kept (a file in the app's photo folder, or a reference to
+/// the photo library) so it can be stored with the recipe.
+struct ImportedImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+    let ref: StoredImageRef
 }

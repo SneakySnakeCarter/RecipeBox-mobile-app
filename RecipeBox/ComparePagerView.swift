@@ -10,6 +10,8 @@ struct ComparePagerView: View {
     /// vision re-read paints them white so that text is skipped there too.
     var excludedRegions: [CGRect] = []
     @Binding var recipe: EditableRecipe
+    /// What it takes to save this recipe to My Recipes (see LibraryInfo).
+    let libraryInfo: LibraryInfo
 
     /// Owned here (not in the editor view) so drafts and undo history
     /// survive rotating between the two layouts.
@@ -29,12 +31,27 @@ struct ComparePagerView: View {
     @State private var recipeBeforeVision: EditableRecipe?
     @State private var confirmVisionDiscardsEdits = false
     @State private var confirmDiscardOnBack = false
+    /// The keyboard is showing. In landscape that leaves very little height,
+    /// so the photo steps aside and the editor takes the full width.
+    @State private var keyboardUp = false
+    /// Whether the recipe is stored in My Recipes. Once it is, every Save
+    /// in the editor is written through to the database.
+    @State private var inLibrary: Bool
+    @State private var libraryMessage: String?
+    @State private var confirmLibraryOtherEdits = false
 
     @Environment(\.dismiss) private var dismiss
 
-    init(source: StitchedImage, excludedRegions: [CGRect] = [], recipe: Binding<EditableRecipe>) {
+    init(
+        source: StitchedImage,
+        excludedRegions: [CGRect] = [],
+        recipe: Binding<EditableRecipe>,
+        libraryInfo: LibraryInfo = LibraryInfo()
+    ) {
         self.source = source
         self.excludedRegions = excludedRegions
+        self.libraryInfo = libraryInfo
+        _inLibrary = State(initialValue: libraryInfo.isSaved)
         _recipe = recipe
         _model = StateObject(wrappedValue: EditorModel(saved: recipe.wrappedValue))
     }
@@ -82,9 +99,29 @@ struct ComparePagerView: View {
                     Button("Undo AI Re-read") { undoAIReread() }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                libraryButton
+            }
         }
-        // Keep the screen that started this flow in step with what's saved.
-        .onChange(of: model.saved) { _, newSaved in recipe = newSaved }
+        // Keep the screen that started this flow in step with what's saved,
+        // and keep My Recipes in step once the recipe has been added there.
+        .onChange(of: model.saved) { _, newSaved in
+            recipe = newSaved
+            if inLibrary { storeInLibrary() }
+        }
+        .alert("Save your edits first", isPresented: $confirmLibraryOtherEdits) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The Fields and Text views both have unsaved edits. Tap Save in the view you want to keep, then add the recipe to My Recipes.")
+        }
+        .alert("My Recipes", isPresented: Binding(
+            get: { libraryMessage != nil },
+            set: { if !$0 { libraryMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(libraryMessage ?? "")
+        }
         .confirmationDialog("Discard unsaved changes?", isPresented: $confirmDiscardOnBack, titleVisibility: .visible) {
             Button("Discard Changes", role: .destructive) { dismiss() }
             Button("Keep Editing", role: .cancel) {}
@@ -142,16 +179,26 @@ struct ComparePagerView: View {
                     model: model,
                     compact: true,
                     onBack: goBack,
-                    onUndoAIReread: recipeBeforeVision == nil ? nil : { undoAIReread() }
+                    onUndoAIReread: recipeBeforeVision == nil ? nil : { undoAIReread() },
+                    inLibrary: inLibrary,
+                    onLibrary: { addToLibrary() }
                 )
-                .frame(width: editorWidth)
+                .frame(width: keyboardUp ? total : editorWidth)
 
-                divider(totalWidth: total)
+                if !keyboardUp {
+                    divider(totalWidth: total)
 
-                imagePane(bottomPadding: 12)
-                    .frame(maxWidth: .infinity)
+                    imagePane(bottomPadding: 12)
+                        .frame(maxWidth: .infinity)
+                }
             }
             .coordinateSpace(name: "compareSplit")
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.2)) { keyboardUp = true }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.2)) { keyboardUp = false }
+            }
         }
     }
 
@@ -183,6 +230,60 @@ struct ComparePagerView: View {
     private func imagePane(bottomPadding: CGFloat) -> some View {
         ImageDisplayView(image: originalImage)
             .overlay(alignment: .bottom) { visionButton(bottomPadding: bottomPadding) }
+    }
+
+    // MARK: - My Recipes
+
+    private var libraryButton: some View {
+        Button {
+            addToLibrary()
+        } label: {
+            Image(systemName: inLibrary ? "bookmark.fill" : "bookmark")
+        }
+        .accessibilityLabel(inLibrary ? "Saved in My Recipes" : "Add to My Recipes")
+    }
+
+    /// Bookmark tapped: store the recipe, taking in any edits that are
+    /// waiting in the current view first.
+    private func addToLibrary() {
+        if inLibrary {
+            libraryMessage = "This recipe is saved in My Recipes. Changes you Save in the editor are kept there automatically."
+            return
+        }
+        if model.hasUnsavedEdits {
+            if model.otherDirty {
+                confirmLibraryOtherEdits = true
+                return
+            }
+            Self.dismissKeyboard()
+            model.saveCurrent()
+        }
+        storeInLibrary()
+    }
+
+    private func storeInLibrary() {
+        do {
+            try RecipeLibrary.shared.save(
+                id: libraryInfo.id,
+                recipe: model.saved,
+                sourceRefs: libraryInfo.sourceRefs,
+                sourceText: libraryInfo.sourceText,
+                excludedRegions: excludedRegions,
+                removeOverlap: libraryInfo.removeOverlap
+            )
+            if !inLibrary {
+                inLibrary = true
+                libraryMessage = "Added to My Recipes."
+            }
+        } catch {
+            libraryMessage = "Couldn't save to My Recipes. \(error.localizedDescription)"
+        }
+    }
+
+    private static func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
     }
 
     // MARK: - Navigation
@@ -244,7 +345,11 @@ struct ComparePagerView: View {
                 switch result {
                 case .success(let parsed):
                     recipeBeforeVision = model.saved
-                    model.reset(to: EditableRecipe(from: parsed))
+                    var reread = EditableRecipe(from: parsed)
+                    // Pictures stay with the recipe; the new rows are new, so
+                    // they go back to belonging to the recipe as a whole.
+                    reread.photos = model.saved.photosDetachedFromRows
+                    model.reset(to: reread)
                     currentPage = 0 // show the new result next to the photo it came from
                 case .failure(let error):
                     visionError = error.localizedDescription

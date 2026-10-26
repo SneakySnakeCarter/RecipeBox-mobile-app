@@ -6,13 +6,13 @@ struct ContentView: View {
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     /// Photos picked or taken for one recipe, before they're stitched.
-    @State private var importImages: [UIImage] = []
+    @State private var importImages: [ImportedImage] = []
     /// The recipe page everything downstream works on: one photo, or several
     /// stitched into one tall image.
     @State private var source: StitchedImage?
     @State private var showStitchReview = false
     /// Photos taken so far in a camera session (each shot reopens the camera).
-    @State private var capturedImages: [UIImage] = []
+    @State private var capturedImages: [ImportedImage] = []
     @State private var showCameraNext = false
     @State private var recipe = EditableRecipe()
     @State private var isParsing = false
@@ -25,6 +25,12 @@ struct ContentView: View {
     /// the same blocked-out areas white before uploading.
     @State private var excludedRegions: [CGRect] = []
     @State private var showPasteSheet = false
+    @State private var showLibrary = false
+    /// Where the photo(s) the current recipe is read from are kept (camera
+    /// files / library references), and the details the library needs to
+    /// save it. Set when a recipe finishes parsing.
+    @State private var sourceRefs: [StoredImageRef] = []
+    @State private var libraryInfo = LibraryInfo()
     /// True while a shared batch is being read from the App Group inbox.
     @State private var isLoadingShared = false
 
@@ -115,6 +121,13 @@ struct ContentView: View {
                         Label("Paste Recipe Text", systemImage: "doc.on.clipboard")
                             .font(.subheadline)
                     }
+
+                    Button {
+                        showLibrary = true
+                    } label: {
+                        Label("My Recipes", systemImage: "books.vertical")
+                            .font(.subheadline)
+                    }
                 }
 
                 if let parseError {
@@ -164,15 +177,20 @@ struct ContentView: View {
                 Button("Cancel", role: .cancel) {}
             }
             .sheet(isPresented: $showPhotoPicker) {
-                PhotoLibraryPicker { images in
+                PhotoLibraryPicker { picked in
                     showPhotoPicker = false
-                    beginImport(images)
+                    importPicked(picked)
                 }
             }
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker(
                     onCaptured: { image in
-                        capturedImages.append(image)
+                        // Photos taken here are kept in the app's own folder.
+                        if let ref = PhotoStore.saveToFolder(image) {
+                            capturedImages.append(ImportedImage(image: image, ref: ref))
+                        } else {
+                            parseError = "That photo couldn't be saved."
+                        }
                         showCamera = false
                         askAboutMoreCameraPhotos()
                     },
@@ -200,6 +218,7 @@ struct ContentView: View {
             .navigationDestination(isPresented: $showStitchReview) {
                 StitchReviewView(images: $importImages) { stitched in
                     source = stitched
+                    sourceRefs = importImages.map(\.ref)
                     excludedRegions = []
                     showMaskEditor = true
                 }
@@ -217,9 +236,13 @@ struct ContentView: View {
                     ComparePagerView(
                         source: source,
                         excludedRegions: excludedRegions,
-                        recipe: $recipe
+                        recipe: $recipe,
+                        libraryInfo: libraryInfo
                     )
                 }
+            }
+            .navigationDestination(isPresented: $showLibrary) {
+                LibraryView()
             }
         }
     }
@@ -227,12 +250,13 @@ struct ContentView: View {
     /// Photos arrive here from the library picker or the camera session. One
     /// photo goes straight to the mask step; several get a review/stitch
     /// step first.
-    private func beginImport(_ images: [UIImage]) {
+    private func beginImport(_ images: [ImportedImage]) {
         guard !images.isEmpty else { return }
         parseError = nil
         excludedRegions = []
         if images.count == 1 {
-            source = .single(images[0])
+            source = .single(images[0].image)
+            sourceRefs = [images[0].ref]
             showMaskEditor = true
         } else {
             importImages = images
@@ -256,7 +280,10 @@ struct ContentView: View {
             isLoadingShared = true
             let limit = PhotoImportLimits.maxPhotos
             DispatchQueue.global(qos: .userInitiated).async {
-                let images = Array(SharedInbox.loadImages(from: batch).prefix(limit))
+                // Shared images are copied into the app's photo folder.
+                let images: [ImportedImage] = SharedInbox.loadImages(from: batch).prefix(limit).compactMap { image in
+                    PhotoStore.saveToFolder(image).map { ImportedImage(image: image, ref: $0) }
+                }
                 DispatchQueue.main.async {
                     isLoadingShared = false
                     SharedInbox.remove(batch)
@@ -286,12 +313,37 @@ struct ContentView: View {
                 case .success(let parsed):
                     // The "original" page shows the text itself.
                     source = TextCardRenderer.render(text)
+                    sourceRefs = []
                     excludedRegions = []
                     recipe = EditableRecipe(from: parsed)
+                    libraryInfo = LibraryInfo(sourceRefs: [], sourceText: text, removeOverlap: false)
                     navigateToCompare = true
                 case .failure(let error):
                     parseError = "Couldn't read the recipe: \(error.localizedDescription)"
                 }
+            }
+        }
+    }
+
+    /// Library picks: keep a reference to each original in the library when
+    /// the app may read it (a copy in the app folder otherwise), then carry on.
+    private func importPicked(_ picked: [PickedPhoto]) {
+        guard !picked.isEmpty else { return }
+        var items = [ImportedImage?](repeating: nil, count: picked.count)
+        let group = DispatchGroup()
+        for (index, photo) in picked.enumerated() {
+            group.enter()
+            PhotoStore.refForLibraryPick(image: photo.image, assetID: photo.assetID) { ref in
+                if let ref { items[index] = ImportedImage(image: photo.image, ref: ref) }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) {
+            let ready = items.compactMap { $0 }
+            if ready.isEmpty {
+                parseError = "The photos couldn't be saved."
+            } else {
+                beginImport(ready)
             }
         }
     }
@@ -314,6 +366,9 @@ struct ContentView: View {
                 switch result {
                 case .success(let parsed):
                     recipe = EditableRecipe(from: parsed)
+                    libraryInfo = LibraryInfo(
+                        sourceRefs: sourceRefs, sourceText: nil, removeOverlap: source.overlapsRemoved > 0
+                    )
                     navigateToCompare = true
                 case .failure(let error):
                     parseError = "Couldn't read the recipe: \(error.localizedDescription)"
