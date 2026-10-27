@@ -79,11 +79,13 @@ final class EditorModel: ObservableObject {
             var parsed = EditableRecipe(from: EditableRecipe.parse(text: textDraft).toStructured())
             parsed.adoptRowIDs(from: saved)
             parsed.photos = saved.photos
+            parsed.category = saved.category
             parsed.dropDanglingPhotoTies()
             candidate = parsed
         }
         // Only record an undo step if something actually changed.
-        if candidate.toText() != saved.toText() || candidate.photos != saved.photos {
+        if candidate.toText() != saved.toText() || candidate.photos != saved.photos
+            || candidate.category != saved.category {
             history.append(saved)
             if history.count > maxHistory { history.removeFirst() }
         }

@@ -65,6 +65,7 @@ struct StitchReviewView: View {
         }
         .navigationTitle("Join Photos")
         .navigationBarTitleDisplayMode(.inline)
+        .helpDrawer(.joinPhotos)
         .alert("Couldn't join the photos", isPresented: $failed) {
             Button("OK", role: .cancel) {}
         } message: {

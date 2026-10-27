@@ -78,6 +78,8 @@ struct ComparePagerView: View {
         )
         .navigationTitle("Compare")
         .navigationBarTitleDisplayMode(.inline)
+        // Landscape has no height to spare, so the help caret is portrait-only.
+        .helpDrawer(.compare, hidden: isLandscape)
         // Landscape has little height to spare: the editor's own thin row
         // carries the back button instead.
         .toolbar(isLandscape ? .hidden : .automatic, for: .navigationBar)
@@ -349,6 +351,7 @@ struct ComparePagerView: View {
                     // Pictures stay with the recipe; the new rows are new, so
                     // they go back to belonging to the recipe as a whole.
                     reread.photos = model.saved.photosDetachedFromRows
+                    reread.category = model.saved.category
                     model.reset(to: reread)
                     currentPage = 0 // show the new result next to the photo it came from
                 case .failure(let error):

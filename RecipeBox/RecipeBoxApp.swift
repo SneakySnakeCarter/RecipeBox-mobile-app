@@ -10,7 +10,8 @@ struct RecipeBoxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            HomeView()
+                .tint(AppTheme.accent)
         }
     }
 }

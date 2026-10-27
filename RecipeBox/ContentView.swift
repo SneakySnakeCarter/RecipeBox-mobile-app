@@ -25,7 +25,6 @@ struct ContentView: View {
     /// the same blocked-out areas white before uploading.
     @State private var excludedRegions: [CGRect] = []
     @State private var showPasteSheet = false
-    @State private var showLibrary = false
     /// Where the photo(s) the current recipe is read from are kept (camera
     /// files / library references), and the details the library needs to
     /// save it. Set when a recipe finishes parsing.
@@ -61,9 +60,11 @@ struct ContentView: View {
             && capturedImages.isEmpty
     }
 
+    /// The Add Recipe page: pushed from the main page (HomeView), which owns
+    /// the navigation stack. Its own steps (join, block out, compare) push
+    /// onto that same stack.
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
+        VStack(spacing: 24) {
                 Spacer()
 
                 Image(systemName: "fork.knife.circle")
@@ -119,13 +120,6 @@ struct ContentView: View {
                         }
                     } label: {
                         Label("Paste Recipe Text", systemImage: "doc.on.clipboard")
-                            .font(.subheadline)
-                    }
-
-                    Button {
-                        showLibrary = true
-                    } label: {
-                        Label("My Recipes", systemImage: "books.vertical")
                             .font(.subheadline)
                     }
                 }
@@ -241,10 +235,9 @@ struct ContentView: View {
                     )
                 }
             }
-            .navigationDestination(isPresented: $showLibrary) {
-                LibraryView()
-            }
-        }
+            .navigationTitle("Add Recipe")
+            .navigationBarTitleDisplayMode(.inline)
+            .helpDrawer(.addRecipe)
     }
 
     /// Photos arrive here from the library picker or the camera session. One
@@ -316,6 +309,7 @@ struct ContentView: View {
                     sourceRefs = []
                     excludedRegions = []
                     recipe = EditableRecipe(from: parsed)
+                    recipe.category = RecipeCategory.guess(fromTitle: recipe.title)
                     libraryInfo = LibraryInfo(sourceRefs: [], sourceText: text, removeOverlap: false)
                     navigateToCompare = true
                 case .failure(let error):
@@ -366,6 +360,7 @@ struct ContentView: View {
                 switch result {
                 case .success(let parsed):
                     recipe = EditableRecipe(from: parsed)
+                    recipe.category = RecipeCategory.guess(fromTitle: recipe.title)
                     libraryInfo = LibraryInfo(
                         sourceRefs: sourceRefs, sourceText: nil, removeOverlap: source.overlapsRemoved > 0
                     )
@@ -384,5 +379,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    NavigationStack { ContentView() }
 }

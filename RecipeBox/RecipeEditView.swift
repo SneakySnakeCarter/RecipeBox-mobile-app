@@ -26,6 +26,10 @@ struct RecipeEditView: View {
     @State private var keyboardVisible = false
     @State private var confirmSaveDiscardsOther = false
     @State private var confirmUndoDiscardsEdits = false
+    /// Categories already used by saved recipes, for the Category menu.
+    @State private var knownCategories: [String] = []
+    @State private var showNewCategory = false
+    @State private var newCategoryName = ""
     @FocusState private var focusedID: UUID?
     @FocusState private var textFocused: Bool
 
@@ -257,6 +261,7 @@ struct RecipeEditView: View {
     private var fieldsEditor: some View {
         Form {
             titleSection
+            categorySection
             detailsSection
             ingredientSections
             instructionSections
@@ -266,6 +271,15 @@ struct RecipeEditView: View {
             addSectionMenu
         }
         .environment(\.editMode, $editMode)
+        .onAppear { knownCategories = RecipeLibrary.shared.categoryNames() }
+        .alert("New category", isPresented: $showNewCategory) {
+            TextField("Name, e.g. Soups", text: $newCategoryName)
+            Button("Add") {
+                let name = newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty { model.fieldsDraft.category = name }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         // Landscape: tighter rows and section gaps so more fits above the keyboard.
         .environment(\.defaultMinListRowHeight, compact ? 32 : 44)
         .listSectionSpacing(compact ? .compact : .default)
@@ -278,6 +292,34 @@ struct RecipeEditView: View {
             TextField("Recipe title", text: $model.fieldsDraft.title, axis: .vertical)
                 .font(.headline)
         }
+    }
+
+    /// Where the recipe is filed on the main page.
+    private var categorySection: some View {
+        Section {
+            Picker("Category", selection: $model.fieldsDraft.category) {
+                Text("None").tag("")
+                ForEach(categoryOptions, id: \.self) { Text($0).tag($0) }
+            }
+            .pickerStyle(.menu)
+            Button {
+                newCategoryName = ""
+                showNewCategory = true
+            } label: {
+                Label("New category…", systemImage: "plus.circle")
+            }
+        }
+    }
+
+    private var categoryOptions: [String] {
+        var names = RecipeCategory.defaults
+        for name in knownCategories + [model.fieldsDraft.category] {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !names.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                names.append(trimmed)
+            }
+        }
+        return names
     }
 
     private var detailsSection: some View {

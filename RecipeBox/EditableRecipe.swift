@@ -69,6 +69,10 @@ struct EditableFact: Identifiable, Equatable {
 /// text and drops empty rows/groups.
 struct EditableRecipe: Equatable {
     var title = ""
+    /// Which group the recipe is filed under on the main page (Breakfast,
+    /// Dinner, …). Empty = uncategorized. Not part of the recipe text, so
+    /// the Text view and the AI never see it.
+    var category = ""
     /// One free-text block for everything that isn't the title, lists, tips
     /// or nutrition: servings, times, description and source, one per line
     /// ("Prep: 20 min"; any other line is the description). Kept as raw
@@ -159,6 +163,7 @@ struct EditableRecipe: Equatable {
 
         // Title, details, etc. come from the structured round trip.
         var result = EditableRecipe(from: toStructured())
+        result.category = category.trimmingCharacters(in: .whitespacesAndNewlines)
         result.ingredientGroups = cleanGroups(ingredientGroups)
         result.instructionGroups = cleanGroups(instructionGroups)
         result.tips = tips

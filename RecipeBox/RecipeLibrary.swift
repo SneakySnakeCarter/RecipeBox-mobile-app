@@ -4,6 +4,8 @@ import CoreGraphics
 struct RecipeSummary: Identifiable {
     let id: UUID
     var title: String
+    /// "" when the recipe has no category.
+    var category: String
     var updatedAt: Date
     var ingredientCount: Int
     var photoCount: Int
@@ -55,6 +57,12 @@ final class RecipeLibrary {
                 db.userVersion = 1
             }
         }
+        if db.userVersion < 2 {
+            try db.transaction {
+                try db.script(RecipeSchema.version2)
+                db.userVersion = 2
+            }
+        }
         return db
     }
 
@@ -94,18 +102,18 @@ final class RecipeLibrary {
         try perform { db in
             try db.transaction {
                 try db.run("""
-                    INSERT INTO recipe (id, title, description, servings, prep_time, cook_time, total_time,
+                    INSERT INTO recipe (id, title, category, description, servings, prep_time, cook_time, total_time,
                                         source, source_text, excluded_regions, stitch_overlap, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
-                        title = excluded.title, description = excluded.description,
+                        title = excluded.title, category = excluded.category, description = excluded.description,
                         servings = excluded.servings, prep_time = excluded.prep_time,
                         cook_time = excluded.cook_time, total_time = excluded.total_time,
                         source = excluded.source, source_text = excluded.source_text,
                         excluded_regions = excluded.excluded_regions,
                         stitch_overlap = excluded.stitch_overlap, updated_at = excluded.updated_at
                     """, [
-                        key, .text(structured.title), .optional(structured.description),
+                        key, .text(structured.title), .text(clean.category), .optional(structured.description),
                         .optional(structured.servings), .optional(structured.prepTime),
                         .optional(structured.cookTime), .optional(structured.totalTime),
                         .optional(structured.source), .optional(sourceText), .optional(regionsJSON),
@@ -199,11 +207,12 @@ final class RecipeLibrary {
 
             try db.query("""
                 SELECT title, description, servings, prep_time, cook_time, total_time, source,
-                       source_text, excluded_regions, stitch_overlap
+                       source_text, excluded_regions, stitch_overlap, category
                 FROM recipe WHERE id = ?
                 """, [key]) { row in
                 found = true
                 recipe.title = row.string(0)
+                recipe.category = row.string(10)
                 recipe.details = EditableRecipe.makeDetails(
                     servings: row.optionalString(2), prep: row.optionalString(3),
                     cook: row.optionalString(4), total: row.optionalString(5),
@@ -279,7 +288,8 @@ final class RecipeLibrary {
             var sql = """
                 SELECT r.id, r.title, r.updated_at,
                        (SELECT COUNT(*) FROM ingredient WHERE recipe_id = r.id),
-                       (SELECT COUNT(*) FROM photo WHERE recipe_id = r.id)
+                       (SELECT COUNT(*) FROM photo WHERE recipe_id = r.id),
+                       r.category
                 FROM recipe r
                 """
             var values: [SQLiteDatabase.Value] = []
@@ -292,19 +302,30 @@ final class RecipeLibrary {
                     .replacingOccurrences(of: "_", with: "\\_")
                 values.append(.text("%\(escaped)%"))
             }
-            sql += " ORDER BY r.updated_at DESC"
+            sql += " ORDER BY r.title COLLATE NOCASE"
 
             var result: [RecipeSummary] = []
             try db.query(sql, values) { row in
                 guard let id = row.uuid(0) else { return }
                 result.append(RecipeSummary(
-                    id: id, title: row.string(1),
+                    id: id, title: row.string(1), category: row.string(5),
                     updatedAt: Date(timeIntervalSince1970: row.double(2)),
                     ingredientCount: row.int(3), photoCount: row.int(4)
                 ))
             }
             return result
         }
+    }
+
+    /// Every category in use, for the editor's Category menu.
+    func categoryNames() -> [String] {
+        (try? perform { db -> [String] in
+            var names: [String] = []
+            try db.query("SELECT DISTINCT category FROM recipe WHERE category <> '' ORDER BY category COLLATE NOCASE") {
+                names.append($0.string(0))
+            }
+            return names
+        }) ?? []
     }
 
     func recipeExists(id: UUID) -> Bool {

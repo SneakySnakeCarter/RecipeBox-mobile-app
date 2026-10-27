@@ -100,6 +100,7 @@ struct MaskEditorView: View {
         }
         .navigationTitle(isTall ? "Joined Photos" : "Block Out Areas")
         .navigationBarTitleDisplayMode(.inline)
+        .helpDrawer(.blockOut)
     }
 
     private var hint: String {

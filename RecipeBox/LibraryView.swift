@@ -21,25 +21,10 @@ struct LibraryView: View {
     @State private var isSearching = false
     @State private var searchedOnce = false
 
-    // Opening a recipe
-    @State private var isOpening = false
-    @State private var opened: OpenedRecipe?
-    @State private var openedRecipe = EditableRecipe()
+    @StateObject private var opener = RecipeOpener()
 
     @State private var errorMessage: String?
     @State private var deleting: RecipeSummary?
-
-    /// A saved recipe loaded and ready for the Compare screen.
-    private struct OpenedRecipe: Identifiable, Hashable {
-        let id: UUID
-        let source: StitchedImage
-        let regions: [CGRect]
-        let info: LibraryInfo
-
-        // Identified by the recipe alone (the images inside aren't Hashable).
-        static func == (a: OpenedRecipe, b: OpenedRecipe) -> Bool { a.id == b.id }
-        func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    }
 
     private var deleteTitle: String {
         let name = deleting?.title ?? ""
@@ -59,27 +44,11 @@ struct LibraryView: View {
             case .ingredients: ingredientSearch
             }
         }
-        .navigationTitle("My Recipes")
+        .navigationTitle("Search Recipes")
         .navigationBarTitleDisplayMode(.inline)
-        .overlay {
-            if isOpening {
-                ZStack {
-                    Color.black.opacity(0.3).ignoresSafeArea()
-                    ProgressView("Opening…")
-                        .padding(20)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-        }
-        .navigationDestination(item: $opened) { item in
-            ComparePagerView(
-                source: item.source,
-                excludedRegions: item.regions,
-                recipe: $openedRecipe,
-                libraryInfo: item.info
-            )
-        }
+        .recipeOpening(opener)
         .onAppear { refresh() }
+        .helpDrawer(.search)
         .alert("My Recipes", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -99,7 +68,7 @@ struct LibraryView: View {
             }
             Button("Cancel", role: .cancel) { deleting = nil }
         } message: {
-            Text("Its pictures taken in the app are deleted too. Photos in your library are not touched.")
+            Text("Its pictures are deleted too. Photos in your photo library are not touched.")
         }
     }
 
@@ -290,36 +259,7 @@ struct LibraryView: View {
     }
 
     private func open(_ id: UUID) {
-        guard !isOpening else { return }
-        do {
-            guard let record = try RecipeLibrary.shared.load(id: id) else {
-                errorMessage = "That recipe couldn't be found."
-                refresh()
-                return
-            }
-            isOpening = true
-            SourceLoader.load(refs: record.sourceRefs, removeOverlap: record.removeOverlap) { stitched in
-                isOpening = false
-                // No stored photo (pasted text, or the photo is gone): show
-                // the recipe's own text where the original would be.
-                let source = stitched ?? TextCardRenderer.render(record.sourceText ?? record.recipe.toText())
-                openedRecipe = record.recipe
-                opened = OpenedRecipe(
-                    id: id,
-                    source: source,
-                    regions: stitched == nil ? [] : record.excludedRegions,
-                    info: LibraryInfo(
-                        id: id,
-                        sourceRefs: record.sourceRefs,
-                        sourceText: record.sourceText,
-                        removeOverlap: record.removeOverlap,
-                        isSaved: true
-                    )
-                )
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        opener.open(id)
     }
 
     private func delete(_ summary: RecipeSummary) {
