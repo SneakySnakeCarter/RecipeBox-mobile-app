@@ -22,6 +22,8 @@ enum HelpTopic {
         case .home:
             return [
                 ("Recipes by type", "Tap a type (Breakfast, Dinner…) to open or close its list. Tap a recipe to open it and edit it."),
+                ("Rename or delete a type", "Press and hold a type's name for Rename Group or Delete Group. Deleting a group keeps its recipes; they move to Uncategorized."),
+                ("Reorder types", "Tap Reorder, drag the handles to rearrange the types, then tap Done. Use Add group there to make a new type."),
                 ("Add Recipe", "Starts a new recipe from photos, a screenshot, shared text, or pasted text."),
                 ("Search", "The magnifier searches by title, or by ingredient: type what you have and see recipes that use all of it, then the closest matches."),
                 ("Delete", "Swipe a recipe left to delete it."),

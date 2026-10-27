@@ -17,6 +17,16 @@ struct HomeView: View {
     @State private var deleting: RecipeSummary?
     @State private var errorMessage: String?
 
+    // Groups: order, renaming, adding, deleting
+    /// The groups in the order the person arranged them.
+    @State private var categoryOrder: [String] = []
+    @State private var isReordering = false
+    @State private var renamingGroup: String?
+    @State private var renameText = ""
+    @State private var showNewGroup = false
+    @State private var newGroupText = ""
+    @State private var deletingGroup: String?
+
     private struct CategoryGroup: Identifiable {
         let name: String
         let recipes: [RecipeSummary]
@@ -27,9 +37,9 @@ struct HomeView: View {
     /// types in use, then "Uncategorized" if there are recipes without one.
     private var groups: [CategoryGroup] {
         var buckets: [String: [RecipeSummary]] = [:]
-        var custom: [String] = []
+        var unknown: [String] = []
         var uncategorized: [RecipeSummary] = []
-        let defaultKeys = Set(RecipeCategory.defaults.map { $0.lowercased() })
+        let knownKeys = Set(categoryOrder.map { $0.lowercased() })
 
         for recipe in summaries {
             let name = recipe.category.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,12 +48,13 @@ struct HomeView: View {
                 continue
             }
             let key = name.lowercased()
-            if !defaultKeys.contains(key) && buckets[key] == nil { custom.append(name) }
+            // Defensive: a recipe filed under a group missing from the list.
+            if !knownKeys.contains(key) && buckets[key] == nil { unknown.append(name) }
             buckets[key, default: []].append(recipe)
         }
 
-        let customSorted = custom.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-        var result = (RecipeCategory.defaults + customSorted).map {
+        let extra = unknown.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        var result = (categoryOrder + extra).map {
             CategoryGroup(name: $0, recipes: buckets[$0.lowercased()] ?? [])
         }
         if !uncategorized.isEmpty {
@@ -56,38 +67,65 @@ struct HomeView: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(groups) { group in
-                        DisclosureGroup(isExpanded: expansion(for: group.name)) {
-                            if group.recipes.isEmpty {
-                                Text("No recipes yet")
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(group.recipes) { recipe in
-                                    recipeRow(recipe)
-                                }
-                            }
-                        } label: {
+                    if isReordering {
+                        // Plain rows with drag handles; groups collapse so
+                        // a whole group moves as one line.
+                        ForEach(categoryOrder, id: \.self) { name in
                             HStack {
-                                Text(group.name)
-                                    .font(.title3)
+                                Text(name).font(.title3)
                                 Spacer()
-                                Text("\(group.recipes.count)")
+                                Text("\(count(in: name))")
                                     .foregroundStyle(.secondary)
+                            }
+                        }
+                        .onMove { source, destination in
+                            categoryOrder.move(fromOffsets: source, toOffset: destination)
+                            saveOrder()
+                        }
+
+                        Button {
+                            newGroupText = ""
+                            showNewGroup = true
+                        } label: {
+                            Label("Add group", systemImage: "plus.circle")
+                        }
+                    } else {
+                        ForEach(groups) { group in
+                            DisclosureGroup(isExpanded: expansion(for: group.name)) {
+                                if group.recipes.isEmpty {
+                                    Text("No recipes yet")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(group.recipes) { recipe in
+                                        recipeRow(recipe)
+                                    }
+                                }
+                            } label: {
+                                groupLabel(group)
                             }
                         }
                     }
                 } header: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("My Recipes")
-                            .font(.title2.bold())
-                            .foregroundStyle(.primary)
-                        Text("\(summaries.count) recipe\(summaries.count == 1 ? "" : "s")")
-                            .font(.subheadline)
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("My Recipes")
+                                .font(.title2.bold())
+                                .foregroundStyle(.primary)
+                            Text("\(summaries.count) recipe\(summaries.count == 1 ? "" : "s")")
+                                .font(.subheadline)
+                        }
+                        Spacer()
+                        Button(isReordering ? "Done" : "Reorder") {
+                            withAnimation { isReordering.toggle() }
+                        }
+                        .font(.subheadline)
+                        .textCase(nil)
                     }
                     .textCase(nil)
                     .padding(.bottom, 4)
                 }
             }
+            .environment(\.editMode, .constant(isReordering ? .active : .inactive))
             .navigationTitle("RecipeBox")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -142,6 +180,34 @@ struct HomeView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .alert("Rename group", isPresented: Binding(
+                get: { renamingGroup != nil },
+                set: { if !$0 { renamingGroup = nil } }
+            )) {
+                TextField("Name", text: $renameText)
+                Button("Save") { commitRename() }
+                Button("Cancel", role: .cancel) { renamingGroup = nil }
+            } message: {
+                Text("Recipes in this group move to the new name.")
+            }
+            .alert("New group", isPresented: $showNewGroup) {
+                TextField("Name, e.g. Soups", text: $newGroupText)
+                Button("Add") { commitNewGroup() }
+                Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog(
+                "Delete the group “\(deletingGroup ?? "")”?",
+                isPresented: Binding(get: { deletingGroup != nil }, set: { if !$0 { deletingGroup = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete Group", role: .destructive) {
+                    if let name = deletingGroup { deleteGroup(name) }
+                    deletingGroup = nil
+                }
+                Button("Cancel", role: .cancel) { deletingGroup = nil }
+            } message: {
+                Text("Its recipes are not deleted; they move to Uncategorized.")
+            }
             .onAppear {
                 atRoot = true
                 refresh()
@@ -153,6 +219,91 @@ struct HomeView: View {
                 if phase == .active { openAddPageIfSharedItemsWaiting() }
             }
             .helpDrawer(.home)
+        }
+    }
+
+    // MARK: - Groups
+
+    /// A group's name row. Long-press it for Rename / Delete. Uncategorized
+    /// is not a real group, so it has no menu.
+    @ViewBuilder
+    private func groupLabel(_ group: CategoryGroup) -> some View {
+        let row = HStack {
+            Text(group.name)
+                .font(.title3)
+            Spacer()
+            Text("\(group.recipes.count)")
+                .foregroundStyle(.secondary)
+        }
+        if group.name == RecipeCategory.uncategorized {
+            row
+        } else {
+            row.contextMenu {
+                Button {
+                    renameText = group.name
+                    renamingGroup = group.name
+                } label: {
+                    Label("Rename Group", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    deletingGroup = group.name
+                } label: {
+                    Label("Delete Group", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private func count(in name: String) -> Int {
+        summaries.filter { $0.category.caseInsensitiveCompare(name) == .orderedSame }.count
+    }
+
+    private func saveOrder() {
+        do {
+            try RecipeLibrary.shared.setCategoryOrder(categoryOrder)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func commitRename() {
+        guard let old = renamingGroup else { return }
+        renamingGroup = nil
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != old else { return }
+        do {
+            try RecipeLibrary.shared.renameCategory(from: old, to: name)
+            // Keep the group open if it was open.
+            if expanded.remove(old) != nil { expanded.insert(name) }
+            refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func commitNewGroup() {
+        let name = newGroupText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if name.caseInsensitiveCompare(RecipeCategory.uncategorized) == .orderedSame
+            || categoryOrder.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+            errorMessage = "There is already a group named “\(name)”."
+            return
+        }
+        do {
+            try RecipeLibrary.shared.addCategory(name)
+            refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteGroup(_ name: String) {
+        do {
+            try RecipeLibrary.shared.deleteCategory(name)
+            expanded.remove(name)
+            refresh()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -206,6 +357,7 @@ struct HomeView: View {
     private func refresh() {
         do {
             summaries = try RecipeLibrary.shared.summaries()
+            categoryOrder = RecipeLibrary.shared.categories()
         } catch {
             errorMessage = error.localizedDescription
         }

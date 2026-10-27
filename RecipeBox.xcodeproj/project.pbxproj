@@ -22,6 +22,10 @@
 		2279EECB308ECB0B0085B55B /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC0308ECB0B0085B55B /* LibraryView.swift */; };
 		2279EECC308ECB0B0085B55B /* RecipePhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC2308ECB0B0085B55B /* RecipePhoto.swift */; };
 		2279EECD308ECB0B0085B55B /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EEC5308ECB0B0085B55B /* SQLiteDatabase.swift */; };
+		2279EED23091333F0085B55B /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EED03091333F0085B55B /* HomeView.swift */; };
+		2279EED33091333F0085B55B /* RecipeOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EED13091333F0085B55B /* RecipeOpener.swift */; };
+		2279EED43091333F0085B55B /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EECE3091333F0085B55B /* AppTheme.swift */; };
+		2279EED53091333F0085B55B /* HelpDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2279EECF3091333F0085B55B /* HelpDrawer.swift */; };
 		23B1BEA414659F71C6AA9D81 /* RecipeBoxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9ECEBC6F29B8F53322D61D /* RecipeBoxApp.swift */; };
 		2A7D6F3F43703E7CEB4C5F71 /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F5C428073D1336C959529E4 /* SharedInbox.swift */; };
 		3C1E26B6CB8ECF3B1415C44D /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F5C428073D1336C959529E4 /* SharedInbox.swift */; };
@@ -83,6 +87,10 @@
 		2279EEC3308ECB0B0085B55B /* RecipePhotosSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePhotosSection.swift; sourceTree = "<group>"; };
 		2279EEC4308ECB0B0085B55B /* RecipeSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeSchema.swift; sourceTree = "<group>"; };
 		2279EEC5308ECB0B0085B55B /* SQLiteDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteDatabase.swift; sourceTree = "<group>"; };
+		2279EECE3091333F0085B55B /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		2279EECF3091333F0085B55B /* HelpDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpDrawer.swift; sourceTree = "<group>"; };
+		2279EED03091333F0085B55B /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		2279EED13091333F0085B55B /* RecipeOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeOpener.swift; sourceTree = "<group>"; };
 		2C1BBD469097F9BAE65F50D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2DB0C2F082280DBB673C94CD /* RecipeEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditView.swift; sourceTree = "<group>"; };
 		3632032485586D8589D044A9 /* OCRTextExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTextExtractor.swift; sourceTree = "<group>"; };
@@ -145,6 +153,10 @@
 		0BE22E29474101102732C952 /* RecipeBox */ = {
 			isa = PBXGroup;
 			children = (
+				2279EECE3091333F0085B55B /* AppTheme.swift */,
+				2279EECF3091333F0085B55B /* HelpDrawer.swift */,
+				2279EED03091333F0085B55B /* HomeView.swift */,
+				2279EED13091333F0085B55B /* RecipeOpener.swift */,
 				5BC17C5F1CEF81AB1202CB9B /* AIRecipeJSONParser.swift */,
 				A735A50074F0A740774318B2 /* AIRecipeParser.swift */,
 				F8F0FF570455C5AAE825BAB5 /* AIRecipeProvider.swift */,
@@ -346,6 +358,10 @@
 				2279EECB308ECB0B0085B55B /* LibraryView.swift in Sources */,
 				2279EECC308ECB0B0085B55B /* RecipePhoto.swift in Sources */,
 				2279EECD308ECB0B0085B55B /* SQLiteDatabase.swift in Sources */,
+				2279EED23091333F0085B55B /* HomeView.swift in Sources */,
+				2279EED33091333F0085B55B /* RecipeOpener.swift in Sources */,
+				2279EED43091333F0085B55B /* AppTheme.swift in Sources */,
+				2279EED53091333F0085B55B /* HelpDrawer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

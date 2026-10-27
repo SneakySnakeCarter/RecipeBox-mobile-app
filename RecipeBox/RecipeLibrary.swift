@@ -63,6 +63,12 @@ final class RecipeLibrary {
                 db.userVersion = 2
             }
         }
+        if db.userVersion < 3 {
+            try db.transaction {
+                try db.script(RecipeSchema.version3)
+                db.userVersion = 3
+            }
+        }
         return db
     }
 
@@ -119,6 +125,14 @@ final class RecipeLibrary {
                         .optional(structured.source), .optional(sourceText), .optional(regionsJSON),
                         .int(removeOverlap ? 1 : 0), .real(now), .real(now)
                     ])
+
+                // A category typed in the editor becomes a group on the main page.
+                if !clean.category.isEmpty {
+                    try db.run("""
+                        INSERT OR IGNORE INTO category (name, position)
+                        VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM category))
+                        """, [.text(clean.category)])
+                }
 
                 // Children are rewritten from scratch (pictures first: they
                 // point at ingredients and steps).
@@ -317,15 +331,75 @@ final class RecipeLibrary {
         }
     }
 
-    /// Every category in use, for the editor's Category menu.
-    func categoryNames() -> [String] {
+    // MARK: - Groups (categories)
+
+    /// The groups, in the order the person arranged them.
+    func categories() -> [String] {
         (try? perform { db -> [String] in
             var names: [String] = []
-            try db.query("SELECT DISTINCT category FROM recipe WHERE category <> '' ORDER BY category COLLATE NOCASE") {
+            try db.query("SELECT name FROM category ORDER BY position, name COLLATE NOCASE") {
                 names.append($0.string(0))
             }
             return names
-        }) ?? []
+        }) ?? RecipeCategory.defaults
+    }
+
+    /// Adds a group at the end (nothing happens if it already exists).
+    func addCategory(_ name: String) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try perform { db in
+            try db.run("""
+                INSERT OR IGNORE INTO category (name, position)
+                VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM category))
+                """, [.text(trimmed)])
+        }
+    }
+
+    /// Renames a group and every recipe filed under it. Throws if another
+    /// group already has the new name (a different name only in capitals
+    /// is fine — that's the same group).
+    func renameCategory(from old: String, to new: String) throws {
+        let name = new.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw SQLiteDatabase.SQLiteError(message: "A group needs a name.") }
+        if name.caseInsensitiveCompare(RecipeCategory.uncategorized) == .orderedSame {
+            throw SQLiteDatabase.SQLiteError(message: "“\(name)” is already used for recipes with no group.")
+        }
+        try perform { db in
+            var clash = false
+            try db.query(
+                "SELECT 1 FROM category WHERE name = ? COLLATE NOCASE AND name <> ? COLLATE NOCASE",
+                [.text(name), .text(old)]
+            ) { _ in clash = true }
+            if clash {
+                throw SQLiteDatabase.SQLiteError(message: "There is already a group named “\(name)”.")
+            }
+            try db.transaction {
+                try db.run("UPDATE category SET name = ? WHERE name = ? COLLATE NOCASE", [.text(name), .text(old)])
+                try db.run("UPDATE recipe SET category = ? WHERE category = ? COLLATE NOCASE", [.text(name), .text(old)])
+            }
+        }
+    }
+
+    /// Saves the order of the groups (first = top of the main page).
+    func setCategoryOrder(_ names: [String]) throws {
+        try perform { db in
+            try db.transaction {
+                for (index, name) in names.enumerated() {
+                    try db.run("UPDATE category SET position = ? WHERE name = ? COLLATE NOCASE", [.int(Int64(index)), .text(name)])
+                }
+            }
+        }
+    }
+
+    /// Removes a group. Its recipes are kept and become uncategorized.
+    func deleteCategory(_ name: String) throws {
+        try perform { db in
+            try db.transaction {
+                try db.run("UPDATE recipe SET category = '' WHERE category = ? COLLATE NOCASE", [.text(name)])
+                try db.run("DELETE FROM category WHERE name = ? COLLATE NOCASE", [.text(name)])
+            }
+        }
     }
 
     func recipeExists(id: UUID) -> Bool {

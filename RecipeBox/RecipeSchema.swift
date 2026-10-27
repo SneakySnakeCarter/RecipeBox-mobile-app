@@ -16,7 +16,7 @@ import Foundation
 /// camera shots) or a reference to the photo library (`storage = 'asset'`,
 /// `location` = the library item's identifier — used for library picks).
 enum RecipeSchema {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     // Keep this a plain string of SQL: Tools/search_prototype/schema_test.py
     // extracts it and runs it against SQLite to check it.
@@ -116,5 +116,20 @@ enum RecipeSchema {
     static let version2 = """
     ALTER TABLE recipe ADD COLUMN category TEXT NOT NULL DEFAULT '';
     CREATE INDEX recipe_category ON recipe(category COLLATE NOCASE);
+    """
+
+    /// Version 3: the groups on the main page, stored so they can be
+    /// renamed and put in any order. Seeded with the default groups, then
+    /// any category already used by a saved recipe.
+    static let version3 = """
+    CREATE TABLE category (
+        name     TEXT PRIMARY KEY COLLATE NOCASE,
+        position INTEGER NOT NULL
+    );
+    INSERT INTO category (name, position) VALUES
+        ('Breakfast', 0), ('Lunch', 1), ('Dinner', 2), ('Dessert', 3), ('Snacks', 4);
+    INSERT OR IGNORE INTO category (name, position)
+        SELECT MIN(category), 100 + ROW_NUMBER() OVER (ORDER BY category COLLATE NOCASE)
+        FROM recipe WHERE category <> '' GROUP BY category COLLATE NOCASE;
     """
 }

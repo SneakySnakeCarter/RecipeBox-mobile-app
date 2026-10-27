@@ -271,7 +271,7 @@ struct RecipeEditView: View {
             addSectionMenu
         }
         .environment(\.editMode, $editMode)
-        .onAppear { knownCategories = RecipeLibrary.shared.categoryNames() }
+        .onAppear { knownCategories = RecipeLibrary.shared.categories() }
         .alert("New category", isPresented: $showNewCategory) {
             TextField("Name, e.g. Soups", text: $newCategoryName)
             Button("Add") {
@@ -312,8 +312,8 @@ struct RecipeEditView: View {
     }
 
     private var categoryOptions: [String] {
-        var names = RecipeCategory.defaults
-        for name in knownCategories + [model.fieldsDraft.category] {
+        var names: [String] = []
+        for name in (knownCategories.isEmpty ? RecipeCategory.defaults : knownCategories) + [model.fieldsDraft.category] {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty && !names.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
                 names.append(trimmed)
